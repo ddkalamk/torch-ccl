@@ -1,505 +1,611 @@
-/*
- * Copyright (c) 2019, Intel Corporation
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- *
- * 3. Neither the name of the Intel Corporation nor the names of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
- */
-
 #include "ProcessGroupCCL.hpp"
 
 #include <map>
+#include <ccl.h>
+#include <core/Stream.h>
+#include <core/Memory.h>
 
-namespace c10d
-{
+#define CCL_CHECK_AND_THROW(result, diagnostic)   \
+  do {                                            \
+      if (result != ccl_status_success)           \
+      {                                           \
+          throw ccl::ccl_error(diagnostic);       \
+      }                                           \
+  } while (0);
 
-#define CCL_CHECK(cmd)                                               \
-  do {                                                               \
-    try {                                                            \
-        cmd;                                                         \
-    }                                                                \
-    catch (ccl::ccl_error& e) {                                      \
-        throw std::runtime_error("CCL error in: " +                  \
-            std::string(__FILE__) + ":" + std::to_string(__LINE__) + \
-            ", with error message: " + e.what());                    \
-    }                                                                \
-    catch (...) {                                                    \
-        throw std::runtime_error("unknown error in: " +              \
-            std::string(__FILE__) + ":" + std::to_string(__LINE__)); \
-    }                                                                \
+
+#define CCL_CHECK(cmd)                                                   \
+  do {                                                                   \
+    try {                                                                \
+        cmd;                                                             \
+    }                                                                    \
+    catch (ccl::ccl_error& e) {                                          \
+        std::string err = "CCL error in: " + std::string(__FILE__) +     \
+            ":" + std::to_string(__LINE__) +                             \
+            ", with error message: " + e.what();                         \
+        fprintf(stderr, "\n%s\n", err.c_str());                          \
+        throw std::runtime_error(err);                                   \
+    }                                                                    \
+    catch (...) {                                                        \
+        std::string err = "unknown error in: " + std::string(__FILE__) + \
+            ":" + std::to_string(__LINE__);                              \
+        fprintf(stderr, "\n%s\n", err.c_str());                          \
+        throw std::runtime_error(err);                                   \
+    }                                                                    \
   } while (0)
 
+namespace c10d {
 namespace {
 
-// Op mapping
-std::map<ReduceOp, ccl::reduction> cclOps =
+enum class dev_type : int16_t
 {
-    {ReduceOp::MIN, ccl::reduction::min},
-    {ReduceOp::MAX, ccl::reduction::max},
-    {ReduceOp::SUM, ccl::reduction::sum},
-    {ReduceOp::PRODUCT, ccl::reduction::prod},
+  cpu = 0,
+  sycl = 1,
+
+  last_value = 2
+};
+
+// Op mapping
+std::map<ReduceOp, ccl::reduction> cclOp = {
+        {ReduceOp::MIN, ccl::reduction::min},
+        {ReduceOp::MAX, ccl::reduction::max},
+        {ReduceOp::SUM, ccl::reduction::sum},
+        {ReduceOp::PRODUCT, ccl::reduction::prod},
 };
 
 // Type mapping
-std::map<at::ScalarType, ccl::data_type> cclDatatypes =
-{
-    {at::kByte, ccl::data_type::dt_char},
-    {at::kChar, ccl::data_type::dt_char},
-    {at::kDouble, ccl::data_type::dt_double},
-    {at::kBFloat16, ccl::data_type::dt_bfp16},
-    {at::kFloat, ccl::data_type::dt_float},
-    {at::kInt, ccl::data_type::dt_int},
-    {at::kLong, ccl::data_type::dt_int64}
+std::map<at::ScalarType, ccl::datatype> cclDatatype = {
+        {at::kByte, ccl::datatype::dt_char},
+        {at::kChar, ccl::datatype::dt_char},
+        {at::kDouble, ccl::datatype::dt_double},
+        {at::kFloat, ccl::datatype::dt_float},
+        {at::kInt, ccl::datatype::dt_int},
+        {at::kLong, ccl::datatype::dt_int64}
 };
 
-static std::once_flag cclInitOnceFlag;
-static std::mutex globalMutex;
-static ccl::communicator_t globalComm;
-static ccl::coll_attr collAttr;
-static ccl::coll_attr collAttrAg;
-
 // Checking the input tensor's validity
-void checkSingleTensorHelper(const at::Tensor& tensor)
-{
-    if (!tensor.is_contiguous())
-    {
-        throw std::runtime_error("input tensor has to be contiguous");
-    }
-
-    if (tensor.is_sparse())
-    {
-        throw std::runtime_error("input tensor has to be dense");
-    }
-
-    if (tensor.is_cuda())
-    {
-        throw std::runtime_error("CUDA tensor detected and CCL doesn't support CUDA buffers");
-    }
-
-    if (tensor.numel() < 0)
-    {
-        throw std::runtime_error("input tensor numel should be non-negative");
-    }
+void checkSingleTensorHelper(const at::Tensor& tensor) {
+  if (!tensor.is_contiguous()) {
+    throw std::runtime_error("input tensor has to be contiguous");
+  }
+  if (tensor.is_sparse()) {
+    throw std::runtime_error("input tensor has to be dense");
+  }
+  if (tensor.is_cuda()) {
+    throw std::runtime_error(
+            "CUDA tensor detected and CCL doesn't support CUDA buffers");
+  }
+  if (tensor.numel() < 0) {
+    throw std::runtime_error("input tensor numel should be non-negative");
+  }
 }
 
-void checkRank(int rank, int size)
-{
-    if (rank < 0 || rank >= size)
-    {
-        throw std::runtime_error("unexpected rank");
-    }
+void checkRank(int rank, int size) {
+  if (rank < 0 || rank >= size) {
+    throw std::runtime_error("unexpected rank");
+  }
 }
 
-void checkSingleTensor(const std::vector<at::Tensor>& tensors)
-{
-    if (tensors.size() != 1)
-    {
-        throw std::runtime_error(
-            "CCL process group does not support tensors count " + std::to_string(tensors.size()));
-    }
-    checkSingleTensorHelper(tensors[0]);
+void checkSingleTensor(const std::vector<at::Tensor>& tensors) {
+  if (tensors.size() != 1) {
+    throw std::runtime_error(
+            "CCL process group does not support multi-GPU collectives");
+  }
+  checkSingleTensorHelper(tensors[0]);
 }
 
-void checkSameSizeAndType(const at::Tensor& tensor,
-                          const std::vector<at::Tensor>& tensors)
-{
-    for (size_t i = 0; i < tensors.size(); ++i)
-    {
-        if ((tensors[i].numel() != tensor.numel()) ||
-            (tensors[i].type() != tensor.type()))
-        {
-            throw std::runtime_error("tensors are not equal in size or data type");
-        }
-        checkSingleTensorHelper(tensors[i]);
+void checkSameSizeAndType(
+        const at::Tensor& tensor,
+        const std::vector<at::Tensor>& tensors) {
+  for (size_t i = 0; i < tensors.size(); ++i) {
+    if ((tensors[i].numel() != tensor.numel()) ||
+        (tensors[i].scalar_type() != tensor.scalar_type())) {
+      throw std::runtime_error("Tensors are not equal in size or data type");
     }
+    checkSingleTensorHelper(tensors[i]);
+  }
+}
+
+dev_type getDevType(const at::Device& dev) {
+  if (dev.is_cpu()) {
+    return dev_type::cpu;
+  } else if (dev.type() == c10::DeviceType::DPCPP) {
+    if (dev.index())
+      return dev_type::sycl;
+    else
+      return dev_type::cpu;
+  } else {
+    throw std::runtime_error(
+      "Not able to create/get the CCL Communicator since "
+      "the devices are not known");
+  }
+}
+
+// Get the device type from the list of devices
+dev_type getDevType(const std::vector<at::Device>& devices) {
+  dev_type devType = getDevType(devices[0]);
+
+  for(auto& dev: devices) {
+    if (devType != getDevType(dev)) {
+      throw std::runtime_error(
+        "Input devices must be the same type.");
+    }
+  }
+
+  return devType;
+}
+
+// Check that all `tensors' have the same type and shape and are distributed
+// across distinct GPUs.
+void check_gpu_tensors(const std::vector<at::Tensor>& tensors) {
+  if (tensors.size() == 0) {
+    throw std::runtime_error("Tensor list must be nonempty");
+  }
+  int device_count;
+  at::dpcpp::dpcppGetDeviceCount(&device_count);
+  if (tensors.size() > static_cast<size_t>(device_count)) {
+    throw std::runtime_error(
+      "Tensor list mustn't be larger than the number of available GPUs");
+  }
+
+  const auto& first = tensors.front();
+
+  // Set for ensuring that tensors are on separate devices.
+  std::unordered_set<decltype(first.get_device())> usedDevices;
+  usedDevices.reserve(tensors.size());
+
+  for (const auto& t : tensors) {
+    if (t.is_sparse()) {
+      throw std::runtime_error("Tensors must be dense");
+    }
+    if (t.scalar_type() != first.scalar_type()) {
+      throw std::runtime_error("Tensors must have identical type");
+    }
+    if (t.sizes() != first.sizes()) {
+      throw std::runtime_error("Tensors must have identical size");
+    }
+    if (!t.is_contiguous()) {
+      throw std::runtime_error("Tensors must be contiguous");
+    }
+    auto device = t.device();
+    if (device.type() != at::DeviceType::DPCPP) {
+      throw std::runtime_error("Tensors must be dpc++ device");
+    }
+    const auto inserted = usedDevices.insert(device.index()).second;
+    if (!inserted) {
+      throw std::runtime_error("Tensors must be on distinct GPU devices");
+    }
+  }
+}
+
+// Get the list of devices from list of tensors
+std::vector<at::Device> getDeviceList(const std::vector<at::Tensor>& tensors) {
+  std::vector<at::Device> res;
+  res.reserve(tensors.size());
+  for (auto& tensor : tensors) {
+    res.push_back(tensor.device());
+  }
+  return res;
+}
+
+// Get the deviceList String from the list of devices
+std::string getKeyFromDevices(const std::vector<at::Device>& devices) {
+  std::string deviceList;
+  for (auto& device : devices) {
+    if (deviceList.empty()) {
+      deviceList = std::to_string(device.index());
+    } else {
+      deviceList += "," + std::to_string(device.index());
+    }
+  }
+  return deviceList;
+}
+
+// [Sync Streams] Helper that lets the input cclStreams to wait for the current
+// stream. CCL communications run on cclStreams, but input tensors are
+// allocated on different streams (i.e., current streams). Communications on
+// cclStreams cannot start before pending input tensor ops on current streams
+// finish. Otherwise, ops on two streams might read/write same tensors
+// concurrently.
+//
+#if 0
+// The synchronization above alone is not enough. We also need to make sure
+// input tensors are not freed before their usages on cclStreams finish. This
+// can be achieved by calling c10::cuda::CUDACachingAllocator::recordStream,
+// which remembers the usage stream (ncclStream), creates an event on the usage
+// stream when GC attempts to free the input tensor, and delays GC until that
+// event is done.
+#endif
+void syncStreams(
+        const std::vector<at::Device>& devices,
+        /*std::vector<at::cuda::CUDAEvent>& ncclEvents,*/
+        std::vector<ccl::stream_t >& cclStreams) {
+//  for (size_t i = 0; i < devices.size(); ++i) {
+//    at::cuda::CUDAStream& ncclStream = ncclStreams[i];
+//    at::cuda::CUDAEvent& ncclEvent = ncclEvents[i];
+//    ncclEvent.record(at::cuda::getCurrentCUDAStream(devices[i].index()));
+//    ncclEvent.block(ncclStream);
+//  }
 }
 
 } // namespace
 
-ProcessGroupCCL::WorkCCL::~WorkCCL()
-{
-    if (req)
-    {
-        std::cerr << "attempted destruction of WorkCCL before work has completed, "
-                  << "terminating the program."
-                  << std::endl;
-        std::terminate();
-    }
-}
+const int64_t ProcessGroupCCL::OP_TIMEOUT_MILLIS = 10 * 1000;
 
-bool ProcessGroupCCL::WorkCCL::isCompleted()
-{
-    if (!req)
-    {
-        return true;
-    }
+std::vector<ccl::communicator_t>& ProcessGroupCCL::getCCLComm(
+  const std::string& devicesKey,
+  const std::vector<at::Device>& devices) {
+  // Sanity check
+  if (devicesKey.empty()) {
+    throw std::runtime_error(
+      "Not able to create/get the CCL Communicator since "
+      "the devices are empty ");
+  }
 
-    bool flag = false;
+  assert(devices.size() == 1 && "device size must be 1");
 
-    std::unique_lock<std::mutex> globalLock(globalMutex);
-    CCL_CHECK(flag = req->test());
+  for (auto& device : devices) {
+    used_gpu_device_idxs.insert(device.index());
+  }
 
-    if (flag)
-    {
-        req.reset();
-        tensors.clear();
-    }
+  if (gpu_comms.find(devicesKey) != gpu_comms.end()) {
+    // Reuse the cached communicator if there is one.
+    return gpu_comms[devicesKey]->gpu_comms;
+  }
 
-    return flag;
-}
+  auto g_comm = ccl::environment::instance().create_communicator();
+  std::vector<ccl::communicator_t> gcomms;
+  gcomms.push_back(std::move(g_comm));
+  ccl::communicator_t null_comm;
 
-bool ProcessGroupCCL::WorkCCL::isSuccess() const
-{
-    if (req)
-    {
-        throw std::runtime_error(
-            "invalid call to WorkCCL::isSuccess before work has completed");
-    }
-    return true;
-}
+  std::vector<ccl::stream_t > ccl_streams;
+  ccl_streams.reserve(devices.size());
 
-bool ProcessGroupCCL::WorkCCL::wait()
-{
-    if (!req)
-    {
-        return true;
-    }
+  for(size_t i = 0; i < devices.size(); ++i)
+  {
+    /* create SYCL stream */
+    auto q = at::dpcpp::getCurrentDPCPPStream(devices[i].index()).dpcpp_queue();
+    ccl_streams.push_back(ccl::environment::instance().create_stream(q));
+  }
 
-    std::unique_lock<std::mutex> globalLock(globalMutex);
-    CCL_CHECK(req->wait());
-    req.reset();
-    tensors.clear();
+  auto comms_collector = std::make_shared<class CCLCommsCollector>(std::move(null_comm), std::move(gcomms));
 
-    // Always return true, because abort API is not implemented.
-    return true;
-}
+  // Move the CCL resource to cache
+  gpu_comms.emplace(devicesKey, std::move(comms_collector));
+  gpu_streams.emplace(devicesKey, std::move(ccl_streams));
+#if 0
+  // CCL communicator not cached, create a new gpu group
+  ccl::comm_group_t group_gomm = ccl::environment::instance().create_comm_group(devices.size(),
+                                                                               devices.size() * size_,
+                                                                               global_comm);
+  // create device communicator attributes
+  ccl::shared_comm_device_attr_t my_device_comm_attr = ccl::environment::instance().create_device_comm_attr(ccl::comm_attr{});
+  // set preferred device topology (OPTIONAL)
+//  my_device_comm_attr->set_value<ccl_device_preferred_topology>(ccl::device_topology_type::allied_process_group_ring);
+//  std::cout << "Create device communicators, expected count: " << devices.size()
+//            << ", preferred topology: " << my_device_comm_attr->get_value<ccl_device_preferred_topology>() << std::endl;
+  // Create communicators (auto rank balancing, based on ids): container based API
+  std::vector<ccl::device_communicator_t> gpu_comms = group_gomm->create_communicators(devices,
+                                                                              my_device_comm_attr);
 
-void ProcessGroupCCL::WorkCCL::abort()
-{
-    TORCH_CHECK(false, "ProcessGroupCCL::WorkCCL::abort not implemented.")
-}
+  std::vector<ccl::stream_t > streamVal;
+  streamVal.reserve(devices.size());
 
-#ifdef USE_VECTOR_ALLGATHERV
-thread_local std::vector<void*> ProcessGroupCCL::agRecvBuffers;
+  std::stringstream ss;
+
+  for(size_t i = 0; i < devices.size(); ++i)
+  {
+    /* create SYCL stream */
+    auto q = c10::sycl::getCurrentSYCLStream(devices[i].index()).sycl_queue();
+    streamVal.push_back(ccl::environment::instance().create_stream(ccl::stream_type::device, &q));
+  }
+  std::cout << ss.str() <<  std::endl;
+
+  ccl_comm_t cclComm = std::make_shared<class CCLCommsCollector>(std::move(group_gomm), std::move(gpu_comms));
+
+  // Move the CCL resource to cache
+  gpu_comms.emplace(devicesKey, std::move(cclComm));
+  gpu_streams.emplace(devicesKey, std::move(streamVal));
 #endif
-
-void ProcessGroupCCL::cclFini()
-{
-    std::unique_lock<std::mutex> globalLock(globalMutex);
-    globalComm.reset();
+  return gpu_comms[devicesKey]->gpu_comms;
 }
 
-void ProcessGroupCCL::cclInitOnce()
-{
-    std::call_once(cclInitOnceFlag, []() {
+template <typename Fn, typename PreProcess, typename PostProcess>
+std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::collective(
+        std::vector<at::Tensor>& inputs,
+        std::vector<at::Tensor>& outputs,
+        Fn fn,
+        PreProcess pre,
+        PostProcess post) {
+  const auto devices = getDeviceList(inputs);
+  const auto key = getKeyFromDevices(devices);
+  auto& comms_collector = getCCLComm(key, devices);
 
-#ifdef USE_CACHE
-      /* to enable collective caching */
-      collAttr.to_cache = 1;
-      collAttrAg.to_cache = 1;
-#endif
+  // First let CCL streams wait for computing kernel on the input tensors's finished.
+  syncStreams(devices,gpu_streams[key]);
 
-#ifdef USE_VECTOR_ALLGATHERV
-      /* to enable allgatherv with recv buffers vector */
-      collAttrAg.vector_buf = 1;
-#endif
+  // Work itself will create the CUDA events on all GPUs of tensors
+  auto work = std::make_shared<ProcessGroupCCL::WorkCCL>(devices);
 
-      CCL_CHECK(globalComm = ccl::environment::instance().create_communicator());
+  pre(gpu_streams[key]);
 
-#ifdef USE_VECTOR_ALLGATHERV
-      agRecvBuffers.reserve(globalComm->size());
-#endif
+  for (size_t i = 0; i < inputs.size(); ++i) {
+    ccl::stream_t& cclStream = gpu_streams[key][i];
+    auto req = fn(inputs[i], outputs[i], comms_collector[i], cclStream);
+    work->requests_[i] = std::move(req);
+  }
 
-      if (std::atexit(ProcessGroupCCL::cclFini))
-      {
-          throw std::runtime_error("failed to register the CCL exit handler");
-      }
+  post(gpu_streams[key]);
+
+  return work;
+}
+
+
+template <typename Fn>
+std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::collective(
+        std::vector<at::Tensor>& inputs,
+        std::vector<at::Tensor>& outputs,
+        Fn fn) {
+  return collective(
+          inputs,
+          outputs,
+          fn,
+          [](std::vector<ccl::stream_t>&) {},
+          [](std::vector<ccl::stream_t>&) {});
+}
+
+ProcessGroupCCL::WorkCCL::~WorkCCL() {
+  for(auto& request_ : requests_) {
+    if (request_.get()) {
+      std::cerr
+              << "Attempted destruction of WorkCCL before work has completed, "
+              << "terminating the program." << std::endl;
+      std::terminate();
+    }
+  }
+}
+
+bool ProcessGroupCCL::WorkCCL::isCompleted() {
+  for(auto& request_ : requests_) {
+    if (!request_.get()) {
+      return true;
+    }
+  }
+
+  bool flag = false;
+
+  std::unique_lock<std::mutex> globalLock(pg_global_mutex);
+
+  for(auto& request_ : requests_) {
+    bool _flag;
+    CCL_CHECK( _flag = request_->test());
+
+    if (_flag) {
+      request_.reset();
+      flag = _flag;
+    }
+  }
+
+  return flag;
+}
+
+bool ProcessGroupCCL::WorkCCL::isSuccess() const {
+  for(auto& request_ : requests_) {
+    if (request_.get()) {
+      throw std::runtime_error(
+              "Invalid call to WorkCCL::isSuccess before work has completed");
+    }
+  }
+  return true;
+}
+
+bool ProcessGroupCCL::WorkCCL::wait() {
+  std::cout<< "work wait  " << requests_.size() << std::endl;
+  for(auto& request_ : requests_) {
+    std::cout<< "johnlu " << request_.get() << std::endl;
+    if (!request_.get()) {
+      return false;
+    }
+  }
+
+  std::unique_lock<std::mutex> lock(mutex_);
+  for(auto& request_ : requests_) {
+    CCL_CHECK(request_->wait());
+    request_.reset();
+  }
+
+  return true;
+}
+
+std::mutex ProcessGroupCCL::pg_global_mutex;
+std::once_flag ProcessGroupCCL::init_flag;
+ccl::coll_attr ProcessGroupCCL::attr;
+
+void ProcessGroupCCL::cclExit() {
+  std::unique_lock<std::mutex> globalLock(pg_global_mutex);
+  // ccl clean up
+}
+
+void ProcessGroupCCL::cclInit() {
+  // Initialize CCL environment
+  std::call_once(init_flag, []() {
+//  Maybe we can put the MPI environ here
+//  setenv("CCL_PM_TYPE", "resizable", 1);
+//  setenv("CCL_KVS_IP_EXCHANGE", "env", 1);
+//  setenv("CCL_KVS_IP_PORT", "4789", 1);
+//  setenv("CCL_VECTOR_ALLGATHERV", "1", 1);
+
+//    attr.to_cache = 0;
+//    ccl_status_t status = ccl_init();
+//    CCL_CHECK_AND_THROW(status, "failed to initialize ccl");
+
+    // register exit handler
+    if (std::atexit(ProcessGroupCCL::cclExit)) {
+      throw std::runtime_error("Fail to register the CCL exit handler");
+    }
   });
 }
 
-std::shared_ptr<ProcessGroup> ProcessGroupCCL::createProcessGroupCCL(
-    const std::shared_ptr<Store>& store,
-    int rank,
-    int size,
-    const std::string& groupName)
-{
-  cclInitOnce();
-
-  if ((rank != -1) && (rank < 0 || (size_t)rank != globalComm->rank()))
-  {
-      throw std::runtime_error("unexpected rank " + std::to_string(rank) +
-                               ", CCL rank " + std::to_string(globalComm->rank()));
-  }
-
-  if ((size != -1) && (size <= 0 || (size_t)size != globalComm->size()))
-  {
-      throw std::runtime_error("unexpected size " + std::to_string(size) +
-                               ", CCL size " + std::to_string(globalComm->size()));
-  }
-
+std::shared_ptr<ProcessGroup> ProcessGroupCCL::createProcessGroupCCL(const std::shared_ptr<Store>& store,
+                                                                     int rank,
+                                                                     int size,
+                                                                     const std::chrono::milliseconds& op_time_out) {
+  cclInit();
   return std::make_shared<ProcessGroupCCL>(rank, size);
 }
 
 ProcessGroupCCL::ProcessGroupCCL(int rank, int size)
-    : ProcessGroup(globalComm->rank(),
-                   globalComm->size()),
-      comm(globalComm.get())
-{}
+        : ProcessGroup(rank, size),
+          global_comm(ccl::environment::instance().create_communicator()) {
+  std::cout<< "create occl pg rank " << global_comm->rank() << " size " << global_comm->size() << std::endl;
+}
 
 ProcessGroupCCL::~ProcessGroupCCL() {}
 
 std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::broadcast(
-    std::vector<at::Tensor>& tensors,
-    const BroadcastOptions& opts)
-{
-    checkSingleTensor(tensors);
-    checkRank(opts.rootRank, getSize());
-
-#ifdef USE_CACHE
-    collAttr.match_id = tensorName.c_str();
-#endif
-
-    std::shared_ptr<ccl::request> req;
-
-    std::unique_lock<std::mutex> globalLock(globalMutex);
-    CCL_CHECK(req = comm->bcast(tensors[0].data_ptr(),
-                                (size_t)tensors[0].numel(),
-                                cclDatatypes.at(tensors[0].type().scalarType()),
-                                (size_t)opts.rootRank,
-                                &collAttr));
-
-    return std::make_shared<ProcessGroupCCL::WorkCCL>(req, tensors);
+        std::vector<at::Tensor>& tensors,
+        const BroadcastOptions& opts) {
+  throw std::runtime_error("ProcessGroupCCL does not support scatter");
 }
 
 std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allreduce(
-    std::vector<at::Tensor>& tensors,
-    const AllreduceOptions& opts)
-{
-    checkSingleTensor(tensors);
+        std::vector<at::Tensor>& tensors,
+        const AllreduceOptions& opts) {
+  check_gpu_tensors(tensors);
 
-#ifdef USE_CACHE
-    collAttr.match_id = tensorName.c_str();
-#endif
+  const auto devices = getDeviceList(tensors);
+  const auto key = getKeyFromDevices(devices);
+  std::cout << "johnlu device name:" << key << std::endl;
 
-    std::shared_ptr<ccl::request> req;
+  auto coll_attr = attr;
+  return collective(tensors, tensors,
+                    [&](at::Tensor input,
+                        at::Tensor output,
+                        ccl::communicator_t & gpu_comm,
+                        ccl::stream_t& stream) {
+                      auto count = input.numel();
 
-    std::unique_lock<std::mutex> globalLock(globalMutex);
-    CCL_CHECK(req = comm->allreduce(tensors[0].data_ptr(),
-                                    tensors[0].data_ptr(),
-                                    (size_t)tensors[0].numel(),
-                                    cclDatatypes.at(tensors[0].type().scalarType()),
-                                    cclOps.at(opts.reduceOp),
-                                    &collAttr));
+                      ccl::communicator::coll_request_t ret_req;
+                      AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "allreduce_sycl", [&] {
+                        auto reduce_op = cclOp.at(opts.reduceOp);
+                        auto input_buf = at::dpcpp::make_buffer<scalar_t>(input.data_ptr());
+                        auto output_buf = at::dpcpp::make_buffer<scalar_t>(output.data_ptr());
 
-    return std::make_shared<ProcessGroupCCL::WorkCCL>(req, tensors);
+                        ret_req = gpu_comm->allreduce(
+                          input_buf,
+                          output_buf,
+                          (size_t)count,
+                          reduce_op,
+                          &coll_attr,
+                          stream);
+                      });
+
+                      std::cout<< "rank " << this->rank_ << " ret_req " << ret_req.get() << std::endl;
+                      return ret_req;
+                    });
 }
 
-std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allreduce_coalesced(
-    std::vector<at::Tensor>& /* unused */,
-    const AllreduceCoalescedOptions& /* unused */)
-{
-    throw std::runtime_error("ProcessGroupCCL does not support allreduce_coalesced");
-}
+//std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allreduce_coalesced(
+//        std::vector<at::Tensor>& tensors,
+//        const AllreduceCoalescedOptions& opts) {
+//  throw std::runtime_error(
+//          "allreduce_coalesced is currently not supported with CCL");
+//}
 
 std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::reduce(
-    std::vector<at::Tensor>& tensors,
-    const ReduceOptions& opts)
-{
-    checkSingleTensor(tensors);
-    checkRank(opts.rootRank, getSize());
-
-#ifdef USE_CACHE
-    collAttr.match_id = tensorName.c_str();
-#endif
-
-    std::shared_ptr<ccl::request> req;
-
-    std::unique_lock<std::mutex> globalLock(globalMutex);
-    CCL_CHECK(req = comm->reduce(tensors[0].data_ptr(),
-                                 tensors[0].data_ptr(),
-                                 (size_t)tensors[0].numel(),
-                                 cclDatatypes.at(tensors[0].type().scalarType()),
-                                 cclOps.at(opts.reduceOp),
-                                 (size_t)opts.rootRank,
-                                 &collAttr));
-
-    return std::make_shared<ProcessGroupCCL::WorkCCL>(req, tensors);
+        std::vector<at::Tensor>& tensors,
+        const ReduceOptions& opts) {
+  throw std::runtime_error("ProcessGroupCCL does not support reduce");
 }
 
 std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allgather(
-    std::vector<std::vector<at::Tensor>>& outputTensors,
-    std::vector<at::Tensor>& inputTensors,
-    const AllgatherOptions& opts)
-{
-    checkSingleTensor(inputTensors);
-
-    if (outputTensors.size() != 1)
-    {
-        throw std::runtime_error(
-            "ProcessGroupCCL/allgather supports a single tensor op only");
-    }
-
-    if (comm->size() != outputTensors[0].size())
-    {
-        throw std::runtime_error(
-            "ProcessGroupCCL/allgather: number of output tensors should equal "
-            "to the world size");
-    }
-
-    checkSameSizeAndType(inputTensors[0], outputTensors[0]);
-
-#ifdef USE_CACHE
-    collAttrAg.match_id = tensorName.c_str();
-#endif
-
-#ifdef USE_VECTOR_ALLGATHERV
-    agRecvBuffers.clear();
-    std::transform(outputTensors[0].begin(), outputTensors[0].end(),
-                   std::back_inserter(agRecvBuffers), [](const at::Tensor& t) { return t.data_ptr(); } );
-#else
-    auto flatOutputTensor = newLikeFlat(outputTensors[0]);
-#endif
-    std::vector<size_t> recvCounts(comm->size(), inputTensors[0].numel());
-
-    std::shared_ptr<ccl::request> req;
-
-    std::unique_lock<std::mutex> globalLock(globalMutex);
-    CCL_CHECK(req = comm->allgatherv(inputTensors[0].data_ptr(),
-                                     (size_t)inputTensors[0].numel(),
-#ifdef USE_VECTOR_ALLGATHERV
-                                     agRecvBuffers.data(),
-#else
-                                     flatOutputTensor.data_ptr(),
-#endif
-                                     (size_t*)recvCounts.data(),
-                                     cclDatatypes.at(inputTensors[0].type().scalarType()),
-                                     &collAttrAg));
-
-#ifdef USE_VECTOR_ALLGATHERV
-    auto agTensors = std::vector<at::Tensor>(outputTensors[0].begin(), outputTensors[0].end());
-    agTensors.emplace_back(inputTensors[0]);
-#else
-    req->wait();
-    for (size_t i = 0; i < outputTensors[0].size(); ++i)
-    {
-        outputTensors[0][i].copy_(flatOutputTensor[i]);
-    }
-    std::vector<at::Tensor> agTensors;
-#endif
-
-    return std::make_shared<ProcessGroupCCL::WorkCCL>(req, std::move(agTensors));
-}
-
-std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allgather_coalesced(
-    std::vector<std::vector<at::Tensor>>& /* unused */,
-    std::vector<at::Tensor>& /* unused */,
-    const AllgatherOptions& /* unused */)
-{
-    throw std::runtime_error("ProcessGroupCCL does not support allgather_coalesced");
-}
-
-std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::gather(
-    std::vector<std::vector<at::Tensor>>& /* unused */,
-    std::vector<at::Tensor>& /* unused */,
-    const GatherOptions& /* unused */)
-{
-    throw std::runtime_error("ProcessGroupCCL does not support gather");
-}
-
-std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::scatter(
-    std::vector<at::Tensor>& /* unused */,
-    std::vector<std::vector<at::Tensor>>& /* unused */,
-    const ScatterOptions& /* unused */)
-{
-    throw std::runtime_error("ProcessGroupCCL does not support scatter");
-}
-
-std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::reduce_scatter(
-    std::vector<at::Tensor>& /* unused */,
-    std::vector<std::vector<at::Tensor>>& /* unused */,
-    const ReduceScatterOptions& /* unused */)
-{
-    throw std::runtime_error("ProcessGroupCCL does not support reduce_scatter");
-}
-
-std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::alltoall(
-    std::vector<at::Tensor>& outputTensors,
-    std::vector<at::Tensor>& inputTensors,
-    const AllToAllOptions& opts)
-{
-    checkSingleTensor(outputTensors);
-    checkSingleTensor(inputTensors);
-
-    std::shared_ptr<ccl::request> req;
-
-    std::unique_lock<std::mutex> globalLock(globalMutex);
-    CCL_CHECK(req = comm->alltoall(inputTensors[0].data_ptr(),
-                                   outputTensors[0].data_ptr(),
-                                   (size_t)outputTensors[0].numel() / comm->size(),
-                                   cclDatatypes.at(outputTensors[0].type().scalarType()),
-                                   &collAttr));
-
-    auto a2aTensors = std::vector<at::Tensor> { inputTensors[0], outputTensors[0] };
-    return std::make_shared<ProcessGroupCCL::WorkCCL>(req, std::move(a2aTensors));
-}
-
-std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::send(
-    std::vector<at::Tensor>& /* unused */,
-    int /* unused */,
-    int /* unused */)
-{
-    throw std::runtime_error("ProcessGroupCCL does not support send");
-}
-
-std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::recv(
-    std::vector<at::Tensor>& /* unused */,
-    int /* unused */,
-    int /* unused */)
-{
-    throw std::runtime_error("ProcessGroupCCL does not support recv");
-}
-
-std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::recvAnysource(
-    std::vector<at::Tensor>& /* unused */,
-    int /* unused */)
-{
-    throw std::runtime_error("ProcessGroupCCL does not support recvAnysource");
+        std::vector<std::vector<at::Tensor>>& outputTensors,
+        std::vector<at::Tensor>& inputTensors,
+        const AllgatherOptions& opts) {
+  throw std::runtime_error("ProcessGroupCCL does not support allgather");
 }
 
 std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::barrier(
-    const BarrierOptions& opts)
-{
-    std::unique_lock<std::mutex> globalLock(globalMutex);
-    CCL_CHECK(comm->barrier());
-    return std::make_shared<ProcessGroupCCL::WorkCCL>();
+        const BarrierOptions& opts) {
+
+#ifdef CCL_IN
+  std::vector<at::Device> devices;
+  if (used_gpu_device_idxs.empty()) {
+    // This means there is not yet a NCCL collective being called
+    // Here we have to use the best guesses and will use a single GPU to call
+    // allreduce to achieve barrier.
+    // In case the multiple processes fall into the same node, we use rank to
+    // ensure that each process is on a different GPU
+//    auto numGPUs = at::cuda::getNumGPUs();
+//    int16_t deviceIdx = static_cast<int16_t>(rank_ % numGPUs);
+//    devices.push_back(at::Device(at::DeviceType::CUDA, deviceIdx));
+  } else {
+    for (auto usedDeviceIdx : used_gpu_device_idxs) {
+      devices.push_back(at::Device(at::DeviceType::SYCL, usedDeviceIdx));
+    }
+  }
+
+  std::unique_lock<std::mutex> globalLock(pg_global_mutex);
+  CCL_CHECK(global_comm->barrier());
+  //TODO: the barrier must be async returned.
+  return std::make_shared<ProcessGroupCCL::WorkCCL>(devices);
+#else
+  throw std::runtime_error("ProcessGroupCCL does not support barrier");
+#endif
 }
 
-PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
-{
-    m.def("createProcessGroupCCL", &ProcessGroupCCL::createProcessGroupCCL);
+std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::gather(
+        std::vector<std::vector<at::Tensor>>& /* unused */,
+        std::vector<at::Tensor>& /* unused */,
+        const GatherOptions& /* unused */) {
+  throw std::runtime_error("ProcessGroupCCL does not support gather");
+}
+
+std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::scatter(
+        std::vector<at::Tensor>& /* unused */,
+        std::vector<std::vector<at::Tensor>>& /* unused */,
+        const ScatterOptions& /* unused */) {
+  throw std::runtime_error("ProcessGroupCCL does not support scatter");
+}
+
+std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::reduce_scatter(
+        std::vector<at::Tensor>& /* unused */,
+        std::vector<std::vector<at::Tensor>>& /* unused */,
+        const ReduceScatterOptions& /* unused */) {
+  throw std::runtime_error("ProcessGroupCCL does not support reduce_scatter");
+}
+
+std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::send(
+        std::vector<at::Tensor>& /* unused */,
+        int /* unused */,
+        int /* unused */) {
+  throw std::runtime_error("ProcessGroupCCL does not support send");
+}
+
+std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::recv(
+        std::vector<at::Tensor>& /* unused */,
+        int /* unused */,
+        int /* unused */) {
+  throw std::runtime_error("ProcessGroupCCL does not support recv");
+}
+
+std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::recvAnysource(
+        std::vector<at::Tensor>& /* unused */,
+        int /* unused */) {
+  throw std::runtime_error("ProcessGroupCCL does not support recvAnysource");
+}
+
+std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allgather_base(
+  at::Tensor& outputBuffer,
+  at::Tensor& inputBuffer,
+  const AllgatherOptions& opts) {
+  throw std::runtime_error("ProcessGroupCCL does not support allgather_base");
+}
+
+std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allreduce_coalesced(
+  std::vector<at::Tensor>& tensors,
+  const AllreduceCoalescedOptions& opts) {
+  throw std::runtime_error("ProcessGroupCCL does not support allreduce_coalesced");
 }
 
 } // namespace c10d
