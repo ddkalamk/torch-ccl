@@ -34,6 +34,23 @@
     }                                                                    \
   } while (0)
 
+
+#define CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(TYPE, NAME, ...)                          \
+  [&] {                                                                      \
+    const auto& the_type = TYPE;                                             \
+    /* don't use TYPE again in case it is an expensive or side-effect op */  \
+    at::ScalarType _st = ::detail::scalar_type(the_type);                    \
+    switch (_st) {                                                           \
+      AT_PRIVATE_CASE_TYPE(at::ScalarType::Char, char, __VA_ARGS__)          \
+      AT_PRIVATE_CASE_TYPE(at::ScalarType::Int, int, __VA_ARGS__)       \
+      AT_PRIVATE_CASE_TYPE(at::ScalarType::Long, int64_t, __VA_ARGS__)       \
+      AT_PRIVATE_CASE_TYPE(at::ScalarType::Float, float, __VA_ARGS__)        \
+      AT_PRIVATE_CASE_TYPE(at::ScalarType::Double, double, __VA_ARGS__)      \
+      default:                                                               \
+        AT_ERROR(#NAME, " not implemented for '", toString(_st), "'");       \
+    }                                                                        \
+  }()
+
 namespace c10d {
 namespace {
 // Op mapping
@@ -43,17 +60,6 @@ std::map<ReduceOp, ccl::reduction> cclOp = {
         {ReduceOp::SUM, ccl::reduction::sum},
         {ReduceOp::PRODUCT, ccl::reduction::prod},
 };
-
-// Type mapping
-std::map<at::ScalarType, ccl::datatype> cclDatatype = {
-        {at::kByte, ccl::datatype::dt_char},
-        {at::kChar, ccl::datatype::dt_char},
-        {at::kDouble, ccl::datatype::dt_double},
-        {at::kFloat, ccl::datatype::dt_float},
-        {at::kInt, ccl::datatype::dt_int},
-        {at::kLong, ccl::datatype::dt_int64}
-};
-
 
 template <typename buffer_data_type, int dims = 1>
 cl::sycl::buffer<buffer_data_type, dims> make_buffer(void* virtual_ptr) {
@@ -333,9 +339,9 @@ ProcessGroupCCL::WorkCCL::~WorkCCL() {
   for(auto& request_ : requests_) {
     if (request_.get()) {
       std::cerr
-              << "Attempted destruction of WorkCCL before work has completed, "
-              << "terminating the program." << std::endl;
-      std::terminate();
+              << "Warning: Destruction of WorkCCL before work wait " << std::endl;
+//      std::terminate();
+      request_.reset();
     }
   }
 }
@@ -375,15 +381,15 @@ bool ProcessGroupCCL::WorkCCL::isSuccess() const {
 }
 
 bool ProcessGroupCCL::WorkCCL::wait() {
-  std::cout<< "work wait  " << requests_.size() << std::endl;
+//  std::cout<< "work wait  " << requests_.size() << std::endl;
   for(auto& request_ : requests_) {
-    std::cout<< "johnlu " << request_.get() << std::endl;
+//    std::cout<< "johnlu " << request_.get() << std::endl;
     if (!request_.get()) {
       return false;
     }
   }
 
-  std::cout<< "johnlu22 " << requests_.size()  << std::endl;
+//  std::cout<< "johnlu22 " << requests_.size()  << std::endl;
   std::unique_lock<std::mutex> lock(mutex_);
   for(auto& request_ : requests_) {
     CCL_CHECK(request_->wait());
@@ -445,7 +451,6 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::broadcast(
 
   const auto devices = getDeviceList(tensors);
   const auto key = getKeyFromDevices(devices);
-  std::cout << "johnlu device name:" << key << std::endl;
 
   auto coll_attr = attr;
   const auto root = opts.rootRank * tensors.size() + opts.rootTensor;
@@ -458,7 +463,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::broadcast(
                         auto count = input.numel();
                         ccl::communicator::coll_request_t ret_req;
 
-                        AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "allreduce_sycl", [&] {
+                        CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "broadcast_sycl", [&] {
                           auto input_buf = make_buffer<scalar_t>(input.data_ptr());
                           ret_req = gpu_comm->bcast(
                             input_buf,
@@ -467,8 +472,6 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::broadcast(
                             &coll_attr,
                             stream);
                         });
-
-                        std::cout<< "rank " << this->rank_ << " ret_req " << ret_req.get() << std::endl;
                         return ret_req;
                       });
   }
@@ -481,7 +484,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::broadcast(
     ccl::communicator::coll_request_t ret_req;
     std::shared_ptr<ccl::request> req;
 
-    AT_DISPATCH_FLOATING_TYPES(tensors[0].scalar_type(), "allreduce", [&] {
+    CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(tensors[0].scalar_type(), "broadcast", [&] {
       CCL_CHECK(ret_req = global_comm->bcast(static_cast<scalar_t*>(tensors[0].data_ptr()),
                                                  (size_t)tensors[0].numel(),
                                                  root,
@@ -499,7 +502,6 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allreduce(
 
   const auto devices = getDeviceList(tensors);
   const auto key = getKeyFromDevices(devices);
-  std::cout << "johnlu device name:" << key << std::endl;
 
   auto coll_attr = attr;
   if (dev_type == c10::DeviceType::DPCPP) {
@@ -512,7 +514,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allreduce(
                         auto reduce_op = cclOp.at(opts.reduceOp);
                         ccl::communicator::coll_request_t ret_req;
 
-                        AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "allreduce_sycl", [&] {
+                        CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "allreduce_sycl", [&] {
                           auto input_buf = make_buffer<scalar_t>(input.data_ptr());
                           auto output_buf = make_buffer<scalar_t>(output.data_ptr());
 
@@ -524,8 +526,6 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allreduce(
                             &coll_attr,
                             stream);
                         });
-
-                        std::cout<< "rank " << this->rank_ << " ret_req " << ret_req.get() << std::endl;
                         return ret_req;
                       });
   }
@@ -540,7 +540,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allreduce(
     std::shared_ptr<ccl::request> req;
     auto reduce_op = cclOp.at(opts.reduceOp);
 
-    AT_DISPATCH_FLOATING_TYPES(tensors[0].scalar_type(), "allreduce", [&] {
+    CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(tensors[0].scalar_type(), "allreduce", [&] {
       CCL_CHECK(ret_req = global_comm->allreduce(static_cast<scalar_t*>(tensors[0].data_ptr()),
         static_cast<scalar_t*>(tensors[0].data_ptr()),
         (size_t)tensors[0].numel(),
