@@ -71,6 +71,12 @@ public:
     {
       requests_.resize(devices.size());
     }
+
+    WorkCCL(ccl::communicator::coll_request_t& req)
+    {
+      requests_.push_back(std::move(req));
+    }
+
     virtual ~WorkCCL();
 
     bool isCompleted() override;

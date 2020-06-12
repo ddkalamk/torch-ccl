@@ -36,15 +36,6 @@
 
 namespace c10d {
 namespace {
-
-enum class dev_type : int16_t
-{
-  cpu = 0,
-  sycl = 1,
-
-  last_value = 2
-};
-
 // Op mapping
 std::map<ReduceOp, ccl::reduction> cclOp = {
         {ReduceOp::MIN, ccl::reduction::min},
@@ -62,6 +53,17 @@ std::map<at::ScalarType, ccl::datatype> cclDatatype = {
         {at::kInt, ccl::datatype::dt_int},
         {at::kLong, ccl::datatype::dt_int64}
 };
+
+
+template <typename buffer_data_type, int dims = 1>
+cl::sycl::buffer<buffer_data_type, dims> make_buffer(void* virtual_ptr) {
+  static_assert(dims == 1, "buffer dims is not 1");
+
+  //reinterpret the buffer to the required type.
+  auto buf = at::dpcpp::dpcppGetBufferMap().template get_buffer<uint8_t>(virtual_ptr);
+  auto range = cl::sycl::range<dims>(buf.get_size()/sizeof(buffer_data_type));
+  return buf.template reinterpret<buffer_data_type, dims>(range);
+}
 
 // Checking the input tensor's validity
 void checkSingleTensorHelper(const at::Tensor& tensor) {
@@ -106,38 +108,9 @@ void checkSameSizeAndType(
   }
 }
 
-dev_type getDevType(const at::Device& dev) {
-  if (dev.is_cpu()) {
-    return dev_type::cpu;
-  } else if (dev.type() == c10::DeviceType::DPCPP) {
-    if (dev.index())
-      return dev_type::sycl;
-    else
-      return dev_type::cpu;
-  } else {
-    throw std::runtime_error(
-      "Not able to create/get the CCL Communicator since "
-      "the devices are not known");
-  }
-}
-
-// Get the device type from the list of devices
-dev_type getDevType(const std::vector<at::Device>& devices) {
-  dev_type devType = getDevType(devices[0]);
-
-  for(auto& dev: devices) {
-    if (devType != getDevType(dev)) {
-      throw std::runtime_error(
-        "Input devices must be the same type.");
-    }
-  }
-
-  return devType;
-}
-
-// Check that all `tensors' have the same type and shape and are distributed
-// across distinct GPUs.
-void check_gpu_tensors(const std::vector<at::Tensor>& tensors) {
+// Check that all `tensors' have the same device and type and shape and
+// are distributed across distinct GPUs if these are GPU tensors.
+c10::DeviceType check_tensors_properties(const std::vector<at::Tensor>& tensors) {
   if (tensors.size() == 0) {
     throw std::runtime_error("Tensor list must be nonempty");
   }
@@ -149,6 +122,7 @@ void check_gpu_tensors(const std::vector<at::Tensor>& tensors) {
   }
 
   const auto& first = tensors.front();
+  auto dev_type = first.device().type();
 
   // Set for ensuring that tensors are on separate devices.
   std::unordered_set<decltype(first.get_device())> usedDevices;
@@ -167,15 +141,16 @@ void check_gpu_tensors(const std::vector<at::Tensor>& tensors) {
     if (!t.is_contiguous()) {
       throw std::runtime_error("Tensors must be contiguous");
     }
-    auto device = t.device();
-    if (device.type() != at::DeviceType::DPCPP) {
-      throw std::runtime_error("Tensors must be dpc++ device");
+    if (dev_type != t.device().type()) {
+      throw std::runtime_error("Tensors must be on the same device type");
     }
-    const auto inserted = usedDevices.insert(device.index()).second;
+    const auto inserted = usedDevices.insert(t.get_device()).second;
     if (!inserted) {
-      throw std::runtime_error("Tensors must be on distinct GPU devices");
+      throw std::runtime_error("Tensors must be on distinct devices");
     }
   }
+
+  return dev_type;
 }
 
 // Get the list of devices from list of tensors
@@ -408,6 +383,7 @@ bool ProcessGroupCCL::WorkCCL::wait() {
     }
   }
 
+  std::cout<< "johnlu22 " << requests_.size()  << std::endl;
   std::unique_lock<std::mutex> lock(mutex_);
   for(auto& request_ : requests_) {
     CCL_CHECK(request_->wait());
@@ -465,44 +441,115 @@ ProcessGroupCCL::~ProcessGroupCCL() {}
 std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::broadcast(
         std::vector<at::Tensor>& tensors,
         const BroadcastOptions& opts) {
-  throw std::runtime_error("ProcessGroupCCL does not support scatter");
-}
-
-std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allreduce(
-        std::vector<at::Tensor>& tensors,
-        const AllreduceOptions& opts) {
-  check_gpu_tensors(tensors);
+  auto dev_type = check_tensors_properties(tensors);
 
   const auto devices = getDeviceList(tensors);
   const auto key = getKeyFromDevices(devices);
   std::cout << "johnlu device name:" << key << std::endl;
 
   auto coll_attr = attr;
-  return collective(tensors, tensors,
-                    [&](at::Tensor input,
-                        at::Tensor output,
-                        ccl::communicator_t & gpu_comm,
-                        ccl::stream_t& stream) {
-                      auto count = input.numel();
+  const auto root = opts.rootRank * tensors.size() + opts.rootTensor;
+  if (dev_type == c10::DeviceType::DPCPP) {
+    return collective(tensors, tensors,
+                      [&](at::Tensor input,
+                          at::Tensor output,
+                          ccl::communicator_t & gpu_comm,
+                          ccl::stream_t& stream) {
+                        auto count = input.numel();
+                        ccl::communicator::coll_request_t ret_req;
 
-                      ccl::communicator::coll_request_t ret_req;
-                      AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "allreduce_sycl", [&] {
-                        auto reduce_op = cclOp.at(opts.reduceOp);
-                        auto input_buf = at::dpcpp::make_buffer<scalar_t>(input.data_ptr());
-                        auto output_buf = at::dpcpp::make_buffer<scalar_t>(output.data_ptr());
+                        AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "allreduce_sycl", [&] {
+                          auto input_buf = make_buffer<scalar_t>(input.data_ptr());
+                          ret_req = gpu_comm->bcast(
+                            input_buf,
+                            (size_t)count,
+                            root,
+                            &coll_attr,
+                            stream);
+                        });
 
-                        ret_req = gpu_comm->allreduce(
-                          input_buf,
-                          output_buf,
-                          (size_t)count,
-                          reduce_op,
-                          &coll_attr,
-                          stream);
+                        std::cout<< "rank " << this->rank_ << " ret_req " << ret_req.get() << std::endl;
+                        return ret_req;
                       });
+  }
+  else if (dev_type == c10::DeviceType::CPU) {
+    checkSingleTensor(tensors);
 
-                      std::cout<< "rank " << this->rank_ << " ret_req " << ret_req.get() << std::endl;
-                      return ret_req;
-                    });
+#ifdef USE_CACHE
+    coll_attr.match_id = tensorName.c_str();
+#endif
+    ccl::communicator::coll_request_t ret_req;
+    std::shared_ptr<ccl::request> req;
+
+    AT_DISPATCH_FLOATING_TYPES(tensors[0].scalar_type(), "allreduce", [&] {
+      CCL_CHECK(ret_req = global_comm->bcast(static_cast<scalar_t*>(tensors[0].data_ptr()),
+                                                 (size_t)tensors[0].numel(),
+                                                 root,
+                                                 &coll_attr));
+    });
+
+    return std::make_shared<ProcessGroupCCL::WorkCCL>(ret_req);
+  }
+}
+
+std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allreduce(
+        std::vector<at::Tensor>& tensors,
+        const AllreduceOptions& opts) {
+  auto dev_type = check_tensors_properties(tensors);
+
+  const auto devices = getDeviceList(tensors);
+  const auto key = getKeyFromDevices(devices);
+  std::cout << "johnlu device name:" << key << std::endl;
+
+  auto coll_attr = attr;
+  if (dev_type == c10::DeviceType::DPCPP) {
+    return collective(tensors, tensors,
+                      [&](at::Tensor input,
+                          at::Tensor output,
+                          ccl::communicator_t & gpu_comm,
+                          ccl::stream_t& stream) {
+                        auto count = input.numel();
+                        auto reduce_op = cclOp.at(opts.reduceOp);
+                        ccl::communicator::coll_request_t ret_req;
+
+                        AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "allreduce_sycl", [&] {
+                          auto input_buf = make_buffer<scalar_t>(input.data_ptr());
+                          auto output_buf = make_buffer<scalar_t>(output.data_ptr());
+
+                          ret_req = gpu_comm->allreduce(
+                            input_buf,
+                            output_buf,
+                            (size_t)count,
+                            reduce_op,
+                            &coll_attr,
+                            stream);
+                        });
+
+                        std::cout<< "rank " << this->rank_ << " ret_req " << ret_req.get() << std::endl;
+                        return ret_req;
+                      });
+  }
+  else if (dev_type == c10::DeviceType::CPU) {
+    checkSingleTensor(tensors);
+
+#ifdef USE_CACHE
+    coll_attr.match_id = tensorName.c_str();
+#endif
+
+    ccl::communicator::coll_request_t ret_req;
+    std::shared_ptr<ccl::request> req;
+    auto reduce_op = cclOp.at(opts.reduceOp);
+
+    AT_DISPATCH_FLOATING_TYPES(tensors[0].scalar_type(), "allreduce", [&] {
+      CCL_CHECK(ret_req = global_comm->allreduce(static_cast<scalar_t*>(tensors[0].data_ptr()),
+        static_cast<scalar_t*>(tensors[0].data_ptr()),
+        (size_t)tensors[0].numel(),
+        reduce_op,
+        &coll_attr));
+    });
+
+    return std::make_shared<ProcessGroupCCL::WorkCCL>(ret_req);
+  }
 }
 
 //std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allreduce_coalesced(
