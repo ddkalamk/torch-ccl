@@ -10,9 +10,9 @@ from torch.multiprocessing import Process
 def run(rank, size):
     """ Distributed function to be implemented later. """
     t = torch.FloatTensor([rank])
+    print("before all_reduce rank {} size {} result {}".format(rank, size, t.cpu()))
     torch.distributed.all_reduce(t)
-
-    print("all_reduce rank {} size {} result {}".format(rank, size, t.cpu()))
+    print("after all_reduce rank {} size {} result {}".format(rank, size, t.cpu()))
 
 
 def init_process(rank, size, fn, backend='occl'):

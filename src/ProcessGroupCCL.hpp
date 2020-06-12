@@ -189,6 +189,22 @@ private:
           PreProcess pre,
           PostProcess post);
 
+  template <typename Fn, typename PreProcess, typename PostProcess>
+  std::shared_ptr<ProcessGroup::Work> collective_gpu(
+    std::vector<at::Tensor>& inputs,
+    std::vector<at::Tensor>& outputs,
+    Fn fn,
+    PreProcess pre,
+    PostProcess post);
+
+  template <typename Fn, typename PreProcess, typename PostProcess>
+  std::shared_ptr<ProcessGroup::Work> collective_cpu(
+    std::vector<at::Tensor>& inputs,
+    std::vector<at::Tensor>& outputs,
+    Fn fn,
+    PreProcess pre,
+    PostProcess post);
+
 protected:
 
   // Global states
@@ -198,6 +214,7 @@ protected:
   static std::mutex pg_global_mutex;
   static ccl::coll_attr attr;
   ccl::communicator_t global_comm;
+  std::vector<ccl::stream_t> cpu_streams;
 
   // The steams used by CCL kernels
   std::unordered_map<std::string, std::vector<ccl::stream_t >> gpu_streams;
