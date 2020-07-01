@@ -178,34 +178,34 @@ private:
   //    ncclResult_t fn(at::Tensor& input, at::Tensor& output,
   //                    ncclComm_t, at::cuda::CUDAStream&);
   //    void {pre,post}(std::vector<at::cuda::CUDAStream&>);
-  template <typename Fn>
+  template <typename fn, typename input_t, typename output_t>
   std::shared_ptr<ProcessGroup::Work> collective(
-          std::vector<at::Tensor>& input,
-          std::vector<at::Tensor>& output,
-          Fn fn);
-  template <typename Fn, typename PreProcess, typename PostProcess>
+          std::vector<input_t>& input,
+          std::vector<output_t>& output,
+          fn fun);
+  template <typename fn, typename pre_process, typename post_process, typename input_t, typename output_t>
   std::shared_ptr<ProcessGroup::Work> collective(
-          std::vector<at::Tensor>& input,
-          std::vector<at::Tensor>& output,
-          Fn fn,
-          PreProcess pre,
-          PostProcess post);
+          std::vector<input_t>& input,
+          std::vector<output_t>& output,
+          fn fun,
+          pre_process pre,
+          post_process post);
 
-  template <typename Fn, typename PreProcess, typename PostProcess>
+  template <typename fn, typename pre_process, typename post_process, typename input_t, typename output_t>
   std::shared_ptr<ProcessGroup::Work> collective_gpu(
-    std::vector<at::Tensor>& inputs,
-    std::vector<at::Tensor>& outputs,
-    Fn fn,
-    PreProcess pre,
-    PostProcess post);
+    std::vector<input_t>& inputs,
+    std::vector<output_t>& outputs,
+    fn fun,
+    pre_process pre,
+    post_process post);
 
-  template <typename Fn, typename PreProcess, typename PostProcess>
+  template <typename fn, typename pre_process, typename post_process, typename input_t, typename output_t>
   std::shared_ptr<ProcessGroup::Work> collective_cpu(
-    std::vector<at::Tensor>& inputs,
-    std::vector<at::Tensor>& outputs,
-    Fn fn,
-    PreProcess pre,
-    PostProcess post);
+    std::vector<input_t>& inputs,
+    std::vector<output_t>& outputs,
+    fn fun,
+    pre_process pre,
+    post_process post);
 
 protected:
 

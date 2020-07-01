@@ -9,8 +9,8 @@ from torch.multiprocessing import Process
 
 def run(rank, size):
     """ Distributed function to be implemented later. """
-    t = torch.FloatTensor([rank + 1, rank + 1]).to("cpu")
-    outputs = [torch.empty([2]).to("cpu") for _ in range(size)]
+    t = torch.FloatTensor([rank + 1, rank + 1]).to("dpcpp")
+    outputs = [torch.empty([2]).to("dpcpp") for _ in range(size)]
     print("before broadcast rank {} size {} result {}".format(rank, size, outputs))
     torch.distributed.all_gather(outputs, t)
     torch.distributed.barrier()

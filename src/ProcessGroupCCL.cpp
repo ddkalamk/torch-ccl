@@ -41,7 +41,7 @@
     /* don't use TYPE again in case it is an expensive or side-effect op */  \
     at::ScalarType _st = ::detail::scalar_type(the_type);                    \
     switch (_st) {                                                           \
-      AT_PRIVATE_CASE_TYPE(at::ScalarType::Char, char, __VA_ARGS__)          \
+      /*AT_PRIVATE_CASE_TYPE(at::ScalarType::Char, char, __VA_ARGS__)*/          \
       AT_PRIVATE_CASE_TYPE(at::ScalarType::Int, int, __VA_ARGS__)       \
       AT_PRIVATE_CASE_TYPE(at::ScalarType::Long, int64_t, __VA_ARGS__)       \
       AT_PRIVATE_CASE_TYPE(at::ScalarType::Float, float, __VA_ARGS__)        \
@@ -122,6 +122,16 @@ std::vector<at::Device> getDeviceList(const std::vector<at::Tensor>& tensors) {
   res.reserve(tensors.size());
   for (auto& tensor : tensors) {
     res.push_back(tensor.device());
+  }
+  return res;
+}
+
+// Get the list of devices from list of tensors
+std::vector<at::Device> getDeviceList(const std::vector<std::vector<at::Tensor>>& tensor_lists) {
+  std::vector<at::Device> res;
+  res.reserve(tensor_lists.size());
+  for (auto& tensors : tensor_lists) {
+    res.push_back(tensors[0].device());
   }
   return res;
 }
@@ -291,33 +301,33 @@ std::vector<ccl::communicator_t>& ProcessGroupCCL::getCCLComm(
   return gpu_comms[devicesKey]->gpu_comms;
 }
 
-template <typename Fn, typename PreProcess, typename PostProcess>
+template <typename fn, typename pre_process, typename post_process, typename input_t, typename output_t>
 std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::collective_cpu(
-  std::vector<at::Tensor>& inputs,
-  std::vector<at::Tensor>& outputs,
-  Fn fn,
-  PreProcess pre,
-  PostProcess post) {
+  std::vector<input_t>& inputs,
+  std::vector<output_t>& outputs,
+  fn fun,
+  pre_process pre,
+  post_process post) {
   if (inputs.size() > 1 || outputs.size() > 1) {
     throw std::runtime_error(
       "CCL process group does not support multi CPU tensor collectives");
   }
   pre(cpu_streams);
 
-  auto req = fn(inputs[0], outputs[0], global_comm, cpu_streams[0]);
+  auto req = fun(inputs[0], outputs[0], global_comm, cpu_streams[0]);
 
   post(cpu_streams);
 
   return std::make_shared<ProcessGroupCCL::WorkCCL>(req);
 }
 
-template <typename Fn, typename PreProcess, typename PostProcess>
+template <typename fn, typename pre_process, typename post_process, typename input_t, typename output_t>
 std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::collective_gpu(
-  std::vector<at::Tensor>& inputs,
-  std::vector<at::Tensor>& outputs,
-  Fn fn,
-  PreProcess pre,
-  PostProcess post) {
+  std::vector<input_t>& inputs,
+  std::vector<output_t>& outputs,
+  fn fun,
+  pre_process pre,
+  post_process post) {
   const auto devices = getDeviceList(inputs);
   const auto key = getKeyFromDevices(devices);
   auto& comms_collector = getCCLComm(key, devices);
@@ -332,7 +342,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::collective_gpu(
 
   for (size_t i = 0; i < inputs.size(); ++i) {
     ccl::stream_t& cclStream = gpu_streams[key][i];
-    auto req = fn(inputs[i], outputs[i], comms_collector[i], cclStream);
+    auto req = fun(inputs[i], outputs[i], comms_collector[i], cclStream);
     work->requests_[i] = std::move(req);
   }
 
@@ -342,19 +352,19 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::collective_gpu(
 
 }
 
-template <typename Fn, typename PreProcess, typename PostProcess>
+template <typename fn, typename pre_process, typename post_process, typename input_t, typename output_t>
 std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::collective(
-        std::vector<at::Tensor>& inputs,
-        std::vector<at::Tensor>& outputs,
-        Fn fn,
-        PreProcess pre,
-        PostProcess post) {
+        std::vector<input_t>& inputs,
+        std::vector<output_t>& outputs,
+        fn fun,
+        pre_process pre,
+        post_process post) {
   auto dev_type = inputs[0].device().type();
   if (dev_type == c10::DeviceType::DPCPP) {
-    return collective_gpu(inputs, outputs, fn, pre, post);
+    return collective_gpu(inputs, outputs, fun, pre, post);
   }
   else if (dev_type == c10::DeviceType::CPU) {
-    return collective_cpu(inputs, outputs, fn, pre, post);
+    return collective_cpu(inputs, outputs, fun, pre, post);
   }
   else {
     throw std::runtime_error("OCCL doesn't support input device ");
@@ -362,15 +372,15 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::collective(
 }
 
 
-template <typename Fn>
+template <typename fn, typename input_t, typename output_t>
 std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::collective(
-        std::vector<at::Tensor>& inputs,
-        std::vector<at::Tensor>& outputs,
-        Fn fn) {
+        std::vector<input_t>& inputs,
+        std::vector<output_t>& outputs,
+        fn fun) {
   return collective(
           inputs,
           outputs,
-          fn,
+          fun,
           [](std::vector<ccl::stream_t>&) {},
           [](std::vector<ccl::stream_t>&) {});
 }
@@ -600,63 +610,89 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allgather(
         const AllgatherOptions& opts) {
   auto dev_type = check_tensors_properties(input_tensors);
 
-  auto output_flattened =
-    flatten_for_scatter_gather(output_tensors, input_tensors, size_);
-  check_tensors_properties(output_flattened);
+  if (dev_type == c10::DeviceType::DPCPP) {
+    // flatten the output tensor for sycl_buffer. TODO: use the USM version.
+    auto output_flattened =
+      flatten_for_scatter_gather(output_tensors, input_tensors, size_);
+    check_tensors_properties(output_flattened);
 
-  return collective(input_tensors, output_flattened,
-                    [&](at::Tensor& input,
-                        at::Tensor& output,
-                        ccl::communicator_t & comm,
-                        ccl::stream_t& stream) {
-                      auto send_count = input.numel();
-                      std::vector<size_t> recv_count(this->size_, send_count);
-                      auto coll_attr = attr;
+    return collective(input_tensors, output_flattened,
+                      [&](at::Tensor& input,
+                          at::Tensor& output,
+                          ccl::communicator_t & comm,
+                          ccl::stream_t& stream) {
+                            auto send_count = input.numel();
+                            std::vector<size_t> recv_count(this->size_, send_count);
+                            auto coll_attr = attr;
 #ifdef USE_CACHE
-                      coll_attr.match_id = tensorName.c_str();
+                            coll_attr.match_id = tensorName.c_str();
 #endif
-                      ccl::communicator::coll_request_t ret_req;
+                            ccl::communicator::coll_request_t ret_req;
 
-                      CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "allgather", [&] {
-                        if (dev_type == c10::DeviceType::DPCPP) {
-                          auto send_buf = at::dpcpp::make_buffer<scalar_t>(input.data_ptr());
-                          auto recv_buf = at::dpcpp::make_buffer<scalar_t>(output.data_ptr());
+                            CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "allgather", [&] {
 
-                          CCL_CHECK(ret_req = comm->allgatherv(
-                            send_buf,
-                            (size_t)send_count,
-                            recv_buf,
-                            (size_t*)recv_count.data(),
-                            &coll_attr,
-                            stream));
-                        }
-                        else {
-                          CCL_CHECK(ret_req = comm->allgatherv(
-                            static_cast<scalar_t*>(input.data_ptr()),
-                            (size_t)send_count,
-                            static_cast<scalar_t*>(output.data_ptr()),
-                            (size_t*)recv_count.data(),
-                            &coll_attr));
+                              std::cout<< "allgather pg rank " << global_comm->rank() << " size " << global_comm->size() << std::endl;
+                              auto send_buf = at::dpcpp::make_buffer<scalar_t>(input.data_ptr());
+                              auto recv_buf = at::dpcpp::make_buffer<scalar_t>(output.data_ptr());
+
+                              CCL_CHECK(ret_req = comm->allgatherv(
+                                send_buf,
+                                (size_t)send_count,
+                                recv_buf,
+                                (size_t*)recv_count.data(),
+                                &coll_attr,
+                                stream));
+                            });
+
+                            return ret_req;
+                          },
+                      [&](std::vector<ccl::stream_t>& ccl_stream) {},
+                      [&](std::vector<ccl::stream_t>& ccl_stream) {
+                        // Copy the flattened output tensors to the outputs.
+                        for (size_t i = 0; i < output_tensors.size(); ++i) {
+//                          at::cuda::CUDAStreamGuard guard(ncclStreams[i]);
+                          for (size_t j = 0; j < output_tensors[0].size(); ++j) {
+                            // See [Sync Streams].
+//                            c10::cuda::CUDACachingAllocator::recordStream(
+//                              outputTensors[i][j].storage().data(), ncclStreams[i]);
+
+                            output_tensors[i][j].copy_(output_flattened[i][j], true);
+                          }
                         }
                       });
-                      ret_req->wait();
-                      return ret_req;
-                    },
-                    [&](std::vector<ccl::stream_t>& ccl_stream) {},
-                    [&](std::vector<ccl::stream_t>& ccl_stream) {
-                      // Copy the flattened output tensors to the outputs.
-                      for (size_t i = 0; i < output_tensors.size(); ++i) {
-//                        at::cuda::CUDAStreamGuard guard(ncclStreams[i]);
-                        for (size_t j = 0; j < output_tensors[0].size(); ++j) {
-                          // See [Sync Streams].
-//                          c10::cuda::CUDACachingAllocator::recordStream(
-//                            outputTensors[i][j].storage().data(), ncclStreams[i]);
+  }
+  else {
+    return collective(input_tensors, output_tensors,
+                      [&](at::Tensor& input,
+                          std::vector<at::Tensor>& output,
+                          ccl::communicator_t & comm,
+                          ccl::stream_t& stream) {
+                        auto send_count = input.numel();
+                        std::vector<size_t> recv_count(this->size_, send_count);
+                        auto coll_attr = attr;
+#ifdef USE_CACHE
+                        coll_attr.match_id = tensorName.c_str();
+#endif
+                        ccl::communicator::coll_request_t ret_req;
 
-                          output_tensors[i][j].copy_(output_flattened[i][j], true);
-                        }
-                      }
-                    });
+                        CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "allgather", [&] {
+                          std::vector<scalar_t *> recv_bufs;
+                          std::transform(output.begin(), output.end(),
+                                         std::back_inserter(recv_bufs),
+                                         [](const at::Tensor &t) { return t.data_ptr<scalar_t>(); });
+                          coll_attr.vector_buf = 1;
+                          CCL_CHECK(ret_req = comm->allgatherv(
+                            static_cast<scalar_t *>(input.data_ptr()),
+                            (size_t) send_count,
+                            (scalar_t * )(recv_bufs.data()),// This cast is safe. The vector buffer is used.
+                            (size_t *) recv_count.data(),
+                            &coll_attr));
+                        });
 
+                        return ret_req;
+                      });
+
+  }
 }
 
 std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::barrier(
