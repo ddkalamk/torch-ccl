@@ -664,7 +664,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allgather(
   else {
     return collective(input_tensors, output_tensors,
                       [&](at::Tensor& input,
-                          std::vector<at::Tensor>& output,
+                          std::vector<at::Tensor>& outputs,
                           ccl::communicator_t & comm,
                           ccl::stream_t& stream) {
                         auto send_count = input.numel();
@@ -677,7 +677,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allgather(
 
                         CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "allgather", [&] {
                           std::vector<scalar_t *> recv_bufs;
-                          std::transform(output.begin(), output.end(),
+                          std::transform(outputs.begin(), outputs.end(),
                                          std::back_inserter(recv_bufs),
                                          [](const at::Tensor &t) { return t.data_ptr<scalar_t>(); });
                           coll_attr.vector_buf = 1;
@@ -691,7 +691,6 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allgather(
 
                         return ret_req;
                       });
-
   }
 }
 
@@ -704,10 +703,104 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::barrier(
 }
 
 std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::gather(
-        std::vector<std::vector<at::Tensor>>& /* unused */,
-        std::vector<at::Tensor>& /* unused */,
-        const GatherOptions& /* unused */) {
-  throw std::runtime_error("ProcessGroupCCL does not support gather");
+        std::vector<std::vector<at::Tensor>>& output_tensors,
+        std::vector<at::Tensor>& input_tensors,
+        const GatherOptions& opts) {
+  static auto invalidArgument = [](const std::string& msg) {
+    throw std::invalid_argument("ProcessGroupGloo::gather: " + msg);
+  };
+
+  assertRootRank(invalidArgument, opts.rootRank, size_);
+
+  if (rank_ == opts.rootRank) {
+    if (output_tensors.size() != 1) {
+      std::stringstream ss;
+      ss << "requires a single-element output list containing a list with "
+         << getSize() << " tensors.";
+      invalidArgument(ss.str());
+    } else if (output_tensors[0].size() != static_cast<size_t>(getSize())) {
+      std::stringstream ss;
+      ss << "Incorrect output list size " << output_tensors[0].size()
+         << ". Output list size should be " << getSize()
+         << ", same as size of the process group.";
+      invalidArgument(ss.str());
+    }
+
+    const auto& options = input_tensors[0].options();
+    const auto& sizes = input_tensors[0].sizes();
+    assertTypeAndSizesMatch(invalidArgument, output_tensors[0], options, sizes);
+  } else {
+    if (output_tensors.size() != 0) {
+      invalidArgument("requires empty output on non-root");
+    }
+  }
+
+  auto dev_type = check_tensors_properties(input_tensors);
+
+  if (dev_type == c10::DeviceType::DPCPP) {
+  }
+  else {
+    if (rank_ == opts.rootRank)
+    {
+      return collective(input_tensors, output_tensors,
+                       [&](at::Tensor& input,
+                           std::vector<at::Tensor>& output,
+                           ccl::communicator_t & comm,
+                           ccl::stream_t& stream) {
+                         std::vector<size_t> send_count(size_, 0);
+                         std::vector<size_t> recv_count(size_, input.numel());
+                         auto coll_attr = attr;
+                         send_count[opts.rootRank] = input.numel();
+                         ccl::communicator::coll_request_t ret_req;
+
+                         CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "gather", [&] {
+                           std::vector<scalar_t *> recv_bufs;
+                           std::transform(output.begin(), output.end(),
+                                          std::back_inserter(recv_bufs),
+                                          [](const at::Tensor &t) { return t.data_ptr<scalar_t>(); });
+                           std::cout<< "gather root rank " << global_comm->rank() << " size " << global_comm->size() <<
+                            " recv buffer " << recv_bufs << " recv count " << recv_count << std::endl;
+                           CCL_CHECK(ret_req = comm->alltoallv(
+                             input.data_ptr<scalar_t>(),
+                             (size_t *) send_count.data(),
+                             (scalar_t *)(recv_bufs.data()),// This cast is safe. The vector buffer is used.
+                             (size_t *) recv_count.data(),
+                             &coll_attr));
+
+                           //have to add wait here.
+                           ret_req->wait();
+                         });
+                         return ret_req;
+                       });
+    }
+    else {
+      std::vector<at::Tensor> dummy_output{at::empty({0}, input_tensors[0].options())};
+      return collective(input_tensors, dummy_output,
+                        [&](at::Tensor& input,
+                            at::Tensor& output,
+                            ccl::communicator_t & comm,
+                            ccl::stream_t& stream) {
+                          std::vector<size_t> send_count(size_, 0);
+                          std::vector<size_t> recv_count(size_, 0);
+                          auto coll_attr = attr;
+                          send_count[opts.rootRank] = input.numel();
+                          ccl::communicator::coll_request_t ret_req;
+
+                          CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "gather", [&] {
+                            std::cout<< "gather slave rank " << global_comm->rank() << " size " << global_comm->size() << std::endl;
+                            CCL_CHECK(ret_req = comm->alltoallv(
+                              input.data_ptr<scalar_t>(),
+                              (size_t *) send_count.data(),
+                              output.data_ptr<scalar_t>(),
+                              (size_t *) recv_count.data(),
+                              &coll_attr));
+                          });
+                          ret_req->wait();
+                          return ret_req;
+                        });
+    }
+
+  }
 }
 
 std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::scatter(
