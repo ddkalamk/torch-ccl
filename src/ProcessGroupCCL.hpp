@@ -77,6 +77,8 @@ public:
       requests_.push_back(std::move(req));
     }
 
+    WorkCCL() {}
+
     virtual ~WorkCCL();
 
     bool isCompleted() override;

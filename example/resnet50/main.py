@@ -192,6 +192,9 @@ def main_worker(gpu, ngpus_per_node, args):
             if isinstance(layer, nn.BatchNorm2d):
                 layer.float()
 
+    if args.sycl is not None:
+        model = model.to("dpcpp")
+
     if args.distributed:
         # For multiprocessing distributed, DistributedDataParallel constructor
         # should always set the single device scope, otherwise,
@@ -209,12 +212,12 @@ def main_worker(gpu, ngpus_per_node, args):
             # model.cuda()
             # DistributedDataParallel will divide and allocate batch_size to all
             # available GPUs if device_ids are not set
+            print("jonlu to distributed model")
             model = torch.nn.parallel.DistributedDataParallel(model)
+            print("jonlu to distributed model end")
     elif args.gpu is not None:
         torch.cuda.set_device(args.gpu)
         model = model.cuda(args.gpu)
-    elif args.sycl is not None:
-        model = model.sycl()
     else:
         # DataParallel will divide and allocate batch_size to all available GPUs
         if args.arch.startswith('alexnet') or args.arch.startswith('vgg'):
@@ -307,6 +310,7 @@ def main_worker(gpu, ngpus_per_node, args):
             train_sampler.set_epoch(epoch)
         adjust_learning_rate(optimizer, epoch, args)
 
+        print("=> train epoch")
         # train for one epoch
         train(train_loader, model, criterion, optimizer, epoch, args)
 
@@ -338,21 +342,26 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
     # switch to train mode
     model.train()
 
+    print("=> johnlu here2222")
     end = time.time()
     for i, (input, target) in enumerate(train_loader):
         # measure data loading time
         data_time.update(time.time() - end)
 
+        print("=> johnlu here")
         if args.gpu is not None:
             input = input.cuda(args.gpu, non_blocking=True)
         if args.sycl is not None:
-            input = input.to("sycl")
-            target = target.to("sycl")
+            input = input.to("dpcpp")
+            target = target.to("dpcpp")
         #target = target.cuda(args.gpu, non_blocking=True)
         #target = target(args.gpu, non_blocking=True)
         # compute output
+        print("=> johnlu forward")
         output = model(input)
+        print("=> johnlu forward done")
         loss = criterion(output, target)
+        print("=> johnlu loss done")
 
         # measure accuracy and record loss
         acc1, acc5 = accuracy(output, target, topk=(1, 5))
@@ -360,10 +369,12 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         top1.update(acc1[0], input.size(0))
         top5.update(acc5[0], input.size(0))
 
+        print("=> johnlu backward")
         # compute gradient and do SGD step
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        print("=> johnlu backward done")
 
         # measure elapsed time
         batch_time.update(time.time() - end)
@@ -395,8 +406,8 @@ def validate(val_loader, model, criterion, args):
             if args.gpu is not None:
                 input = input.cuda(args.gpu, non_blocking=True)
             if args.sycl is not None:
-                input = input.to("sycl")
-                target = target.to("sycl")
+                input = input.to("dpcpp")
+                target = target.to("dpcpp")
             if args.fp16:
                 input = input.half()
                 # target = target.half()
