@@ -136,6 +136,16 @@ std::vector<at::Device> getDeviceList(const std::vector<std::vector<at::Tensor>>
   return res;
 }
 
+// Get the device type from list of tensors
+at::Device getDeviceType(const std::vector<at::Tensor>& tensors) {
+  return tensors[0].device();
+}
+
+// Get the list of devices from list of tensors
+at::Device getDeviceType(const std::vector<std::vector<at::Tensor>>& tensor_lists) {
+  return tensor_lists[0][0].device();
+}
+
 // Get the deviceList String from the list of devices
 std::string getKeyFromDevices(const std::vector<at::Device>& devices) {
   std::string deviceList;
@@ -359,7 +369,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::collective(
         fn fun,
         pre_process pre,
         post_process post) {
-  auto dev_type = inputs[0].device().type();
+  auto dev_type = getDeviceType(inputs).type();
   if (dev_type == c10::DeviceType::DPCPP) {
     return collective_gpu(inputs, outputs, fun, pre, post);
   }
@@ -703,24 +713,24 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::barrier(
 }
 
 std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::gather(
-        std::vector<std::vector<at::Tensor>>& output_tensors,
+        std::vector<std::vector<at::Tensor>>& output_tensors_list,
         std::vector<at::Tensor>& input_tensors,
         const GatherOptions& opts) {
   static auto invalidArgument = [](const std::string& msg) {
-    throw std::invalid_argument("ProcessGroupGloo::gather: " + msg);
+    throw std::invalid_argument("ProcessGroupCCL::gather: " + msg);
   };
 
   assertRootRank(invalidArgument, opts.rootRank, size_);
 
-  if (rank_ == opts.rootRank) {
-    if (output_tensors.size() != 1) {
+  if (getRank() == opts.rootRank) {
+    if (output_tensors_list.size() != 1) {
       std::stringstream ss;
       ss << "requires a single-element output list containing a list with "
          << getSize() << " tensors.";
       invalidArgument(ss.str());
-    } else if (output_tensors[0].size() != static_cast<size_t>(getSize())) {
+    } else if (output_tensors_list[0].size() != static_cast<size_t>(getSize())) {
       std::stringstream ss;
-      ss << "Incorrect output list size " << output_tensors[0].size()
+      ss << "Incorrect output list size " << output_tensors_list[0].size()
          << ". Output list size should be " << getSize()
          << ", same as size of the process group.";
       invalidArgument(ss.str());
@@ -728,9 +738,9 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::gather(
 
     const auto& options = input_tensors[0].options();
     const auto& sizes = input_tensors[0].sizes();
-    assertTypeAndSizesMatch(invalidArgument, output_tensors[0], options, sizes);
+    assertTypeAndSizesMatch(invalidArgument, output_tensors_list[0], options, sizes);
   } else {
-    if (output_tensors.size() != 0) {
+    if (output_tensors_list.size() != 0) {
       invalidArgument("requires empty output on non-root");
     }
   }
@@ -742,8 +752,8 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::gather(
   else {
     if (rank_ == opts.rootRank)
     {
-      return collective(input_tensors, output_tensors,
-                       [&](at::Tensor& input,
+      return collective(input_tensors, output_tensors_list,
+                        [&](at::Tensor& input,
                            std::vector<at::Tensor>& output,
                            ccl::communicator_t & comm,
                            ccl::stream_t& stream) {
@@ -804,10 +814,102 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::gather(
 }
 
 std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::scatter(
-        std::vector<at::Tensor>& /* unused */,
-        std::vector<std::vector<at::Tensor>>& /* unused */,
-        const ScatterOptions& /* unused */) {
-  throw std::runtime_error("ProcessGroupCCL does not support scatter");
+        std::vector<at::Tensor>& output_tensors,
+        std::vector<std::vector<at::Tensor>>& input_tensors_list,
+        const ScatterOptions& opts) {
+  static auto invalidArgument = [](const std::string& msg) {
+    throw std::invalid_argument("ProcessGroupCCL::scatter: " + msg);
+  };
+
+  assertRootRank(invalidArgument, opts.rootRank, size_);
+
+  if (getRank() == opts.rootRank) {
+    if (input_tensors_list.size() != 1) {
+      std::stringstream ss;
+      ss << "requires a single-element input list containing a list with "
+         << getSize() << " tensors";
+      invalidArgument(ss.str());
+    } else if (input_tensors_list[0].size() != static_cast<size_t>(getSize())) {
+      std::stringstream ss;
+      ss << "Incorrect input list size " << input_tensors_list[0].size()
+         << ". Input list size should be " << getSize()
+         << ", same as size of the process group.";
+      invalidArgument(ss.str());
+    }
+    const auto& options = output_tensors[0].options();
+    const auto& sizes = output_tensors[0].sizes();
+    assertTypeAndSizesMatch(invalidArgument, input_tensors_list[0], options, sizes);
+  } else {
+    if (input_tensors_list.size() != 0) {
+      invalidArgument("requires empty input on non-root");
+    }
+  }
+
+  auto dev_type = check_tensors_properties(output_tensors);
+
+  if (dev_type == c10::DeviceType::DPCPP) {
+  }
+  else {
+    if (rank_ == opts.rootRank)
+    {
+      return collective(input_tensors_list, output_tensors,
+                        [&](std::vector<at::Tensor>& input,
+                            at::Tensor& output,
+                            ccl::communicator_t & comm,
+                            ccl::stream_t& stream) {
+                          std::vector<size_t> send_count(size_, 0);
+                          std::vector<size_t> recv_count(size_, 0);
+                          auto coll_attr = attr;
+                          recv_count[opts.rootRank] = output.numel();
+                          ccl::communicator::coll_request_t ret_req;
+
+                          CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(output.scalar_type(), "scatter", [&] {
+                            std::vector<scalar_t *> send_bufs;
+                            std::transform(input.begin(), input.end(),
+                                           std::back_inserter(send_bufs),
+                                           [](const at::Tensor &t) { return t.data_ptr<scalar_t>(); });
+                            std::cout<< "scatter root rank " << global_comm->rank() << " size " << global_comm->size() <<
+                                     " recv buffer " << send_bufs << " recv count " << recv_count << std::endl;
+                            CCL_CHECK(ret_req = comm->alltoallv(
+                              (scalar_t *)(send_bufs.data()),// This cast is safe. The vector buffer is used.
+                              (size_t *) send_count.data(),
+                              output.data_ptr<scalar_t>(),
+                              (size_t *) recv_count.data(),
+                              &coll_attr));
+
+                            //have to add wait here.
+                            ret_req->wait();
+                          });
+                          return ret_req;
+                        });
+    }
+    else {
+      std::vector<at::Tensor> dummy_input{at::empty({0}, output_tensors[0].options())};
+      return collective(dummy_input, output_tensors,
+                        [&](at::Tensor& input,
+                            at::Tensor& output,
+                            ccl::communicator_t & comm,
+                            ccl::stream_t& stream) {
+                          std::vector<size_t> send_count(size_, 0);
+                          std::vector<size_t> recv_count(size_, 0);
+                          auto coll_attr = attr;
+                          recv_count[opts.rootRank] = output.numel();
+                          ccl::communicator::coll_request_t ret_req;
+
+                          CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "scatter", [&] {
+                            std::cout<< "scatter slave rank " << global_comm->rank() << " size " << global_comm->size() << std::endl;
+                            CCL_CHECK(ret_req = comm->alltoallv(
+                              input.data_ptr<scalar_t>(),
+                              (size_t *) send_count.data(),
+                              output.data_ptr<scalar_t>(),
+                              (size_t *) recv_count.data(),
+                              &coll_attr));
+                          });
+                          ret_req->wait();
+                          return ret_req;
+                        });
+    }
+  }
 }
 
 std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::reduce_scatter(
@@ -819,8 +921,8 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::reduce_scatter(
 
 std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::send(
         std::vector<at::Tensor>& /* unused */,
-        int /* unused */,
-        int /* unused */) {
+        int dst_rank,
+        int tag) {
   throw std::runtime_error("ProcessGroupCCL does not support send");
 }
 
@@ -838,15 +940,15 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::recvAnysource(
 }
 
 std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allgather_base(
-  at::Tensor& outputBuffer,
-  at::Tensor& inputBuffer,
-  const AllgatherOptions& opts) {
+  at::Tensor& /* unused */,
+  at::Tensor& /* unused */,
+  const AllgatherOptions& /* unused */) {
   throw std::runtime_error("ProcessGroupCCL does not support allgather_base");
 }
 
 std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allreduce_coalesced(
-  std::vector<at::Tensor>& tensors,
-  const AllreduceCoalescedOptions& opts) {
+  std::vector<at::Tensor>& /* unused */,
+  const AllreduceCoalescedOptions& /* unused */) {
   throw std::runtime_error("ProcessGroupCCL does not support allreduce_coalesced");
 }
 

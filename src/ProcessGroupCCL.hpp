@@ -119,7 +119,7 @@ public:
 
   // Unsupported Ops
   std::shared_ptr<ProcessGroup::Work> gather(
-          std::vector<std::vector<at::Tensor>>& output_tensors,
+          std::vector<std::vector<at::Tensor>>& output_tensors_list,
           std::vector<at::Tensor>& input_tensors,
           const GatherOptions& opts = GatherOptions()) override;
 
