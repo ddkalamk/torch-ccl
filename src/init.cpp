@@ -7,6 +7,9 @@
 #include <pybind11/chrono.h>
 #include "ProcessGroupCCL.hpp"
 
+template <typename T>
+using shared_ptr_class_ = py::class_<T, std::shared_ptr<T>>;
+
 PYBIND11_MODULE(liboccl, m) {
   m.def("occl_group", &c10d::ProcessGroupCCL::createProcessGroupCCL, "Create One CCL Backend");
 //  m.def("_occl_version", );
@@ -33,5 +36,51 @@ PYBIND11_MODULE(liboccl, m) {
                                             py::arg("timeout") = std::chrono::milliseconds(
                                               ::c10d::ProcessGroupCCL::OP_TIMEOUT_MILLIS)));
 
+  auto processGroup = module.attr("ProcessGroup");
+  auto processGroupOCCL = shared_ptr_class_<::c10d::ProcessGroupCCL>(
+    module, "ProcessGroupOCCL", processGroup);
+
+//  shared_ptr_class_<::gloo::transport::Device>(processGroupGloo, "Device");
+
+//  shared_ptr_class_<::c10d::ProcessGroupGloo::Options>(
+//    processGroupGloo, "Options")
+//    .def(py::init<>())
+//    .def_readwrite("devices", &::c10d::ProcessGroupGloo::Options::devices)
+//    .def_readwrite("timeout", &::c10d::ProcessGroupGloo::Options::timeout)
+//    .def_readwrite("threads", &::c10d::ProcessGroupGloo::Options::threads);
+
+//  processGroupOCCL.def_static(
+//    "create_device",
+//    [](const std::string& hostname, const std::string& interface)
+//      -> std::shared_ptr<::gloo::transport::Device> {
+//      if (!hostname.empty()) {
+//        return ::c10d::ProcessGroupGloo::createDeviceForHostname(hostname);
+//      }
+//      if (!interface.empty()) {
+//        return ::c10d::ProcessGroupGloo::createDeviceForInterface(interface);
+//      }
+//      throw std::invalid_argument(
+//        "Specify either `hostname` or `interface` argument.");
+//    },
+//    py::arg("hostname") = "",
+//    py::arg("interface") = "");
+
+  processGroupOCCL
+    .def(py::init<
+//      const std::shared_ptr<::c10d::Store>&,
+      int,
+      int//,
+      /*std::chrono::milliseconds*/>())
+    .def(
+      py::init([](const std::shared_ptr<::c10d::Store>& store,
+                  int rank,
+                  int size,
+                  std::chrono::milliseconds timeout) {
+        return std::make_shared<::c10d::ProcessGroupCCL>(rank, size);
+      }),
+      py::arg("store"),
+      py::arg("rank"),
+      py::arg("size"),
+      py::arg("timeout") = std::chrono::milliseconds(10 * 1000));
 
 }
