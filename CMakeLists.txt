@@ -33,7 +33,11 @@ target_compile_options(occl PRIVATE
         -Wno-unknown-pragmas
         )
 
-set(L0_SUPPORT "YES")
+if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
+    target_compile_options(occl PRIVATE -fsized-deallocation)
+endif()
+
+set(L0_SUPPORT "NO")
 set(L0_ROOT "/usr/")
 if(${L0_SUPPORT} STREQUAL "YES")
 
@@ -43,7 +47,6 @@ if(${L0_SUPPORT} STREQUAL "YES")
 
     #    LIST(APPEND CMAKE_MODULE_PATH "${L0_ROOT}/lib/cmake/level_zero" "${L0_ROOT}/lib/cmake/level_zero")
     #find_package(LevelZero CONFIG REQUIRED PATHS ${CMAKE_MODULE_PATH})
-    message("Level0 examples, path: ${CMAKE_MODULE_PATH}")
     list(APPEND CCL_INCLUDE_DIR "${L0_ROOT}/include/level_zero")
 #    list(APPEND CCL_INCLUDE_DIR "/opt/intel/opencl/include/")
 #    list(APPEND CCL_INCLUDE_DIR "/p/pdsd/scratch/sivanov/opencl")

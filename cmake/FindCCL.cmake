@@ -15,7 +15,7 @@
 #
 #
 
-set(CCL_INSTALL_DIR "/home/johnlu/CLionProjects/mlsl2/cmake-build-debug-clang/_installo")
+set(CCL_INSTALL_DIR "/home/johnlu/CLionProjects/mlsl2/cmake-build-debug-clang/_install")
 #set(CCL_INSTALL_DIR "/home/johnlu/CLionProjects/mlsl2/cmake-build-debug-computecpp/_install/")
 find_path(CCL_INCLUDE_DIR
   NAMES

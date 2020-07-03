@@ -419,8 +419,8 @@ bool ProcessGroupCCL::WorkCCL::isCompleted() {
 
 bool ProcessGroupCCL::WorkCCL::isSuccess() const {
   std::unique_lock<std::mutex> lock(mutex_);
-  for(auto& request : requests_) {
-  }
+//  for(auto& request : requests_) {
+//  }
   return true;
 }
 
