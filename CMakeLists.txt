@@ -12,9 +12,9 @@ list(APPEND DEPENDS_LIB ${CCL_LIBRARY})
 
 set(OCCL_SRCS src/init.cpp src/ProcessGroupCCL.cpp)
 
-IF(USE_SYCL)
-    # Find SYCL
-    include(cmake/DPCPP.cmake)
+IF(COMPUTE_RUNTIME STREQUAL "dpcpp")
+    # import sycl SYCL
+    include(cmake/SYCL.cmake)
 ENDIF()
 
 add_library(occl SHARED ${OCCL_SRCS})
@@ -70,8 +70,7 @@ endif()
 
 target_include_directories(occl PRIVATE ${CCL_INCLUDE_DIR} ${PYTHON_INCLUDE_DIRS} ${PYTORCH_INCLUDE_DIRS} ${IPEX_INCLUDE_DIRS})
 
-IF(USE_SYCL)
-    MESSAGE(STATUS here johnlu)
+IF(COMPUTE_RUNTIME STREQUAL "dpcpp")
     target_include_directories(occl PRIVATE ${SYCL_INCLUDE_DIRS})
 ENDIF()
 
