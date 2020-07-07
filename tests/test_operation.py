@@ -1,7 +1,7 @@
 import os
 import torch
 import torch_ipex
-import occl
+import torch_ccl
 import tempfile
 import unittest
 import torch.distributed as c10d

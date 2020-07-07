@@ -20,7 +20,7 @@ import torchvision.datasets as datasets
 import models as models
 from PIL import Image
 import torch_ipex
-import occl
+import torch_ccl
 
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")

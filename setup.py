@@ -15,6 +15,63 @@ from distutils.version import LooseVersion
 BUILD_DIR = 'build'
 
 
+def check_env_flag(name, default=''):
+    return os.getenv(name, default).upper() in ['ON', '1', 'YES', 'TRUE', 'Y']
+
+
+# hotpatch environment variable 'CMAKE_BUILD_TYPE'. 'CMAKE_BUILD_TYPE' always prevails over DEBUG or REL_WITH_DEB_INFO.
+if 'CMAKE_BUILD_TYPE' not in os.environ:
+    if check_env_flag('DEBUG'):
+        os.environ['CMAKE_BUILD_TYPE'] = 'Debug'
+    elif check_env_flag('REL_WITH_DEB_INFO'):
+        os.environ['CMAKE_BUILD_TYPE'] = 'RelWithDebInfo'
+    else:
+        os.environ['CMAKE_BUILD_TYPE'] = 'Release'
+
+# Constant known variables used throughout this file
+cwd = os.path.dirname(os.path.abspath(__file__))
+lib_path = os.path.join(cwd, "occl", "lib")
+
+package_name = os.getenv('OCCL_PACKAGE_NAME', 'torch-ccl')
+version = open('version.txt', 'r').read().strip()
+sha = 'Unknown'
+
+try:
+    sha = check_output(['git', 'rev-parse', 'HEAD'], cwd=cwd).decode('ascii').strip()
+except Exception:
+    pass
+
+if os.getenv('PYTORCH_BUILD_VERSION'):
+    assert os.getenv('PYTORCH_BUILD_NUMBER') is not None
+    build_number = int(os.getenv('PYTORCH_BUILD_NUMBER'))
+    version = os.getenv('PYTORCH_BUILD_VERSION')
+    if build_number > 1:
+        version += '.post' + str(build_number)
+elif sha != 'Unknown':
+    version += '+' + sha[:7]
+print("Building wheel {}-{}".format(package_name, version))
+
+
+# all the work we need to do _before_ setup runs
+def build_deps():
+    print('-- Building version ' + version)
+
+    def check_file(f):
+        if not os.path.exists(f):
+            print("Could not find {}".format(f))
+            print("Did you run 'git submodule update --init --recursive'?")
+            sys.exit(1)
+
+    version_path = os.path.join(cwd, 'torch_ccl', 'version.py')
+    with open(version_path, 'w') as f:
+        f.write("__version__ = '{}'\n".format(version))
+        # NB: This is not 100% accurate, because you could have built the
+        # library code with DEBUG, but csrc without DEBUG (in which case
+        # this would claim to be a release build when it's not.)
+        f.write("build_type = '{}'\n".format(os.environ['CMAKE_BUILD_TYPE']))
+        f.write("git_version = {}\n".format(repr(sha)))
+
+
 def _create_build_env():
     my_env = os.environ.copy()
     return my_env
@@ -101,7 +158,7 @@ class CMakeExtension(Extension):
         check_call(command, cwd=self.build_dir, env=env)
 
 
-    def generate(self, my_env, build_dir, install_prefix, python_lib, rerun):
+    def generate(self, my_env, build_dir, install_prefix, python_lib):
         """Runs cmake to generate native build files."""
 
         def convert_cmake_dirs(paths):
@@ -136,11 +193,12 @@ class CMakeExtension(Extension):
                 build_options[var] = val
 
         if self.runtime == "dpcpp":
-            defines(cmake_args, CMAKE_C_COMPILER="clang")
-            defines(cmake_args, CMAKE_CXX_COMPILER="clang++")
+            pass
         elif self.runtime == "native:":
-            raise RuntimeError("gcc is not supported by ccl now")
+            pass
 
+        defines(cmake_args, CMAKE_C_COMPILER="clang")
+        defines(cmake_args, CMAKE_CXX_COMPILER="clang++")
         defines(cmake_args, **build_options)
         base_dir = os.path.dirname(os.path.abspath(__file__))
         cmake_args.append(base_dir)
@@ -175,6 +233,7 @@ class BuildCMakeExt(build_ext):
         extension_path = pathlib.Path(self.get_ext_fullpath(extension.name))
 
         build_dir.mkdir(parents=True, exist_ok=True)
+        install_dir = str(extension_path.parent.absolute()) + '/torch_ccl/lib'
         # extension_path.parent.absolute().mkdir(parents=True, exist_ok=True)
 
         # Now that the necessary directories are created, build
@@ -182,30 +241,19 @@ class BuildCMakeExt(build_ext):
 
         my_env = _create_build_env()
 
-        # # Store build options that are directly stored in environment variables
-        # build_options = {
-        #     # The default value cannot be easily obtained in CMakeLists.txt. We set it here.
-        #     # 'CMAKE_PREFIX_PATH': distutils.sysconfig.get_python_lib()
-        # }
-
         extension.generate(my_env,
                            build_dir,
-                           str(extension_path.parent.absolute()) + '/occl/lib',
-                           extension_path.name,
-                           False)
+                           install_dir,
+                           extension_path.name)
 
         # Build the target
         self.announce("Building binaries", level=3)
 
         build_args = [
-            # '--config', config,
             '--', '-j4'
         ]
 
         self.spawn(['cmake', '--build', str(build_dir)] + build_args)
-
-    # def build_extensions(self):
-    #     pass
 
 
 class Clean(clean):
@@ -232,11 +280,18 @@ class Clean(clean):
         clean.run(self)
 
 if __name__ == '__main__':
+  build_deps()
   setup(
-      name='occl',
-      version='0.1',
-      ext_modules=[CMakeExtension("liboccl_dpcpp", "./CMakeLists.txt", runtime='dpcpp')],
-      packages=['occl'],
+      name=package_name,
+      version=version,
+      ext_modules=[CMakeExtension("liboccl",       "./CMakeLists.txt", runtime='native'),
+                   CMakeExtension("liboccl_dpcpp", "./CMakeLists.txt", runtime='dpcpp')],
+      packages=['torch_ccl'],
+      package_data={
+          'torch_ccl': [
+              '*.py',
+              'lib/*.so*',
+              ]},
       cmdclass={
           'build_ext': BuildCMakeExt,
           'clean': Clean,

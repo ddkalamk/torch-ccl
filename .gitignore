@@ -22,8 +22,9 @@
 */**/**/**/*.pyc
 */**/**/**/**/*.pyc
 
-occl/include/
-occl/lib/
+torch_ccl/include/
+torch_ccl/lib/
+torch_ccl/version.py
 
 # Root level file used in CI to specify certain env configs.
 # E.g., see .circleci/config.yaml
@@ -125,6 +126,7 @@ build_ios
 .build_debug/*
 .build_release/*
 distribute/*
+dist/
 *.testbin
 *.bin
 cmake_build
@@ -132,7 +134,6 @@ cmake_build
 gen
 .setuptools-cmake-build
 .pytest_cache
-aten/build/*
 
 # Bram
 plsdontbreak

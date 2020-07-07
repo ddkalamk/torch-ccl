@@ -4,7 +4,7 @@ import os
 import torch
 import torch_ipex
 import torch.distributed as dist
-import occl
+import torch_ccl
 from torch.multiprocessing import Process
 
 def run(rank, size):

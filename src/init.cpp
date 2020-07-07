@@ -7,11 +7,15 @@
 #include <pybind11/chrono.h>
 #include "ProcessGroupCCL.hpp"
 
+#ifndef OCCL_LIBNAME
+#define OCCL_LIBNAME liboccl
+#endif
+
 template <typename T>
 using shared_ptr_class_ = py::class_<T, std::shared_ptr<T>>;
 
-PYBIND11_MODULE(liboccl, m) {
-  m.def("occl_group", &c10d::ProcessGroupCCL::createProcessGroupCCL, "Create One CCL Backend");
+PYBIND11_MODULE(OCCL_LIBNAME, m) {
+  m.def("create_pg_occl", &c10d::ProcessGroupCCL::createProcessGroupCCL, "Create One CCL Backend");
 //  m.def("_occl_version", );
 //
 //{"_nccl_version", (PyCFunction)THCPModule_nccl_version, METH_NOARGS, nullptr},

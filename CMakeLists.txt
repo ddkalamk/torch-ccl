@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.2 FATAL_ERROR)
-project(occl)
+project(torch_ccl)
 
 # Find modules.
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
@@ -12,29 +12,37 @@ list(APPEND DEPENDS_LIB ${CCL_LIBRARY})
 
 set(OCCL_SRCS src/init.cpp src/ProcessGroupCCL.cpp)
 
-IF(COMPUTE_RUNTIME STREQUAL "dpcpp")
+IF(COMPUTE_RUNTIME STREQUAL "dpcpp" OR COMPUTE_RUNTIME STREQUAL "native")
     # import sycl SYCL
     include(cmake/SYCL.cmake)
 ENDIF()
 
-add_library(occl SHARED ${OCCL_SRCS})
-set_target_properties(occl PROPERTIES PREFIX "")
-set_target_properties(occl PROPERTIES SUFFIX "")
-set_target_properties(occl PROPERTIES OUTPUT_NAME ${LIB_NAME})
-set_target_properties(occl PROPERTIES POSITION_INDEPENDENT_CODE ON)
-#set_target_properties(occl PROPERTIES CXX_STANDARD 17)
+function(GetOCCLLibName LIB_NAME)
+    string(REPLACE "." ";" NAMES_LIST ${LIB_NAME})
+    list(GET NAMES_LIST 0 OCCL_LIBNAME)
+    set(OCCL_LIBNAME ${OCCL_LIBNAME} PARENT_SCOPE)
+endfunction()
 
-target_compile_options(occl PRIVATE
+add_library(torch_ccl SHARED ${OCCL_SRCS})
+set_target_properties(torch_ccl PROPERTIES PREFIX "")
+set_target_properties(torch_ccl PROPERTIES SUFFIX "")
+set_target_properties(torch_ccl PROPERTIES OUTPUT_NAME ${LIB_NAME})
+set_target_properties(torch_ccl PROPERTIES POSITION_INDEPENDENT_CODE ON)
+#set_target_properties(occl PROPERTIES CXX_STANDARD 17)
+GetOCCLLibName(${LIB_NAME})
+
+target_compile_options(torch_ccl PRIVATE
         -Wall
         -Wextra
         -Wno-unused-parameter
         -Wno-missing-field-initializers
         -Wno-write-strings
         -Wno-unknown-pragmas
+        -DOCCL_LIBNAME=${OCCL_LIBNAME}
         )
 
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
-    target_compile_options(occl PRIVATE -fsized-deallocation)
+    target_compile_options(torch_ccl PRIVATE -fsized-deallocation)
 endif()
 
 set(L0_SUPPORT "NO")
@@ -68,10 +76,10 @@ if(${L0_SUPPORT} STREQUAL "YES")
 
 endif()
 
-target_include_directories(occl PRIVATE ${CCL_INCLUDE_DIR} ${PYTHON_INCLUDE_DIRS} ${PYTORCH_INCLUDE_DIRS} ${IPEX_INCLUDE_DIRS})
+target_include_directories(torch_ccl PRIVATE ${CCL_INCLUDE_DIR} ${PYTHON_INCLUDE_DIRS} ${PYTORCH_INCLUDE_DIRS} ${IPEX_INCLUDE_DIRS})
 
-IF(COMPUTE_RUNTIME STREQUAL "dpcpp")
-    target_include_directories(occl PRIVATE ${SYCL_INCLUDE_DIRS})
+IF(COMPUTE_RUNTIME STREQUAL "dpcpp" OR COMPUTE_RUNTIME STREQUAL "native")
+    target_include_directories(torch_ccl PRIVATE ${SYCL_INCLUDE_DIRS})
 ENDIF()
 
 if(USE_DPCPP)
@@ -81,10 +89,10 @@ if(USE_DPCPP)
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fsycl -fsycl-device-code-split=per_source")
 endif()
 
-target_link_libraries(occl PUBLIC ${DEPENDS_LIB})
+target_link_libraries(torch_ccl PUBLIC ${DEPENDS_LIB})
 link_directories(${PYTORCH_LIBRARY_DIRS})
-target_link_libraries(occl PUBLIC ${PYTORCH_LIBRARY_DIRS}/libtorch_python.so)
-target_link_libraries(occl PUBLIC ${IPEX_LIBRARY_DIRS}/torch_ipex.so)
+target_link_libraries(torch_ccl PUBLIC ${PYTORCH_LIBRARY_DIRS}/libtorch_python.so)
+target_link_libraries(torch_ccl PUBLIC ${IPEX_LIBRARY_DIRS}/torch_ipex.so)
 
 #target_link_libraries(occl PUBLIC ${PYTORCH_LIBRARY_DIRS}/libc10.so)
 #target_link_libraries(occl PUBLIC ${PYTORCH_LIBRARY_DIRS}/libc10d.a)
