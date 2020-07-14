@@ -2,7 +2,7 @@ import sys
 import warnings
 
 
-SUM = 0  # ncclRedOp_t
+SUM = 0  # occlRedOp_t
 
 
 def unique_id():

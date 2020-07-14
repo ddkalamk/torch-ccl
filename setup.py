@@ -1,4 +1,5 @@
-# USE_SYCL to turn on/off the Intel GPU support
+# DEBUG build with debug
+
 import os
 import pathlib
 import shutil
@@ -30,7 +31,7 @@ if 'CMAKE_BUILD_TYPE' not in os.environ:
 
 # Constant known variables used throughout this file
 cwd = os.path.dirname(os.path.abspath(__file__))
-lib_path = os.path.join(cwd, "occl", "lib")
+lib_path = os.path.join(cwd, "torch_ccl", "lib")
 
 package_name = os.getenv('OCCL_PACKAGE_NAME', 'torch-ccl')
 version = open('version.txt', 'r').read().strip()
