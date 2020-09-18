@@ -9,33 +9,63 @@ This repository holds PyTorch bindings maintained by Intel for the Intel® oneAP
 
 [Intel® oneCCL](https://github.com/oneapi-src/oneCCL) (collective commnications library) is a library for efficient distributed deep learning training implementing such collectives like allreduce, allgather, alltoall. For more information on oneCCL, please refer to the [oneCCL documentation](https://oneapi-src.github.io/oneCCL).
 
-`torch-ccl` module implements PyTorch C10D ProcessGroup API and can be dynamically loaded as external ProcessGroup.
+`torch-ccl` module implements PyTorch C10D ProcessGroup API and can be dynamically loaded as external ProcessGroup and only works on Linux platform now.
 
+# Pytorch API Align
+We recommend Anaconda as Python package management system. The following is the corresponding branchs (tags) of torch-ccl and supported Pytorch.
+
+   | ``torch`` | ``torch-ccl`` |  
+   | :-----:| :---: |  
+   |  ``master`` |  ``master``  |
+   | [v1.6.0](https://github.com/pytorch/pytorch/tree/v1.6.0) |  [ccl_torch1.6](https://github.com/intel/torch-ccl/tree/ccl_torch1.6)   | 
+   | [v1.5-rc3](https://github.com/pytorch/pytorch/tree/v1.5.0-rc3) |   [beta09](https://github.com/intel/torch-ccl/tree/beta09)   |
+
+The usage details can be found in the README of corresponding branch. The following part is about the usage of beta09 tag. if you want to use other version of torch-ccl please checkout to that branch(tag). For pytorch-1.5.0-rc3, the [#PR28068](https://github.com/pytorch/pytorch/pull/28068) and [#PR32361](https://github.com/pytorch/pytorch/pull/32361) are need to dynamicall register external ProcessGroup and enable ``alltoall`` collective communication primitive. The patch file about these two PRs is in ``patches`` directory and you can use it directly. 
 
 # Requirements
 
-PyTorch (1.5.0 or higher).
+Python 3.6 or later and a C++14 compiler
 
-Intel® oneAPI Collective Communications Library (2021.1-beta05 or higher).
-
+pytorch-1.5.0-rc3  branch.
 
 # Installation
 
 To install `torch-ccl`:
 
-1. Install PyTorch.
+1. clone [PyTorch](https://github.com/pytorch/pytorch) from source code.
 
-2. Install the `torch-ccl`.
+```bash
+   git clone https://github.com/pytorch/pytorch.git
+   cd pytorch 
+   git checkout v1.5.0-rc3
+```
+2. clone the `torch-ccl`.
+
+```bash
+ git clone https://github.com/intel/torch-ccl.git && cd torch-ccl 
+ git submodule sync 
+ git submodule update --init --recursive 
 
 ```
-$ python setup.py install
-```
+3. Install pytorch and torch-ccl
 
-3. Source the oneCCL environment.
+```bash
+   cd ../pytorch 
+   git apply ../torch-ccl/patches/enable_torch_ccl_for_pytorch1.5.0-rc3.diff
+   git submodule sync
+   git submodule update --init --recursive
+   python setup.py install 
+   cd ../torch-ccl
+   python setup.py install
+```    
+4. oneCCL is used as third party repo of torch-ccl but you need to source the oneCCL environment before runing.
 
-```
-$ torch_ccl_path=$(python -c "import torch; import torch_ccl; import os;  print(os.path.abspath(os.path.dirname(torch_ccl.__file__)))")
-$ source $torch_ccl_path/ccl/env/setvars.sh
+```bash
+$ source <torch_ccl_path>/ccl/env/setvars.sh
+
+for example: 
+$torch_ccl_path=$CONDA_PREFIX/lib/python3.7/site-packages/torch_ccl-1.0.1-py3.7-linux-x86_64.egg/
+$source <torch_ccl_path>/ccl/env/setvars.sh
 ```
 
 
@@ -71,8 +101,7 @@ model = torch.nn.parallel.DistributedDataParallel(model, ...)
 ```
 
 ```
-$ torch_ccl_path=$(python -c "import torch; import torch_ccl; import os;  print(os.path.abspath(os.path.dirname(torch_ccl.__file__)))")
-$ source $torch_ccl_path/ccl/env/setvars.sh
+$ source <torch_ccl_path>/ccl/env/setvars.sh
 $ mpirun -n <N> -ppn <PPN> -f <hostfile> python example.py
 ```
 
@@ -110,8 +139,6 @@ print(prof.key_averages(group_by_input_shape=True).table(sort_by="self_cpu_time_
 ```
 
 ```
-$ torch_ccl_path=$(python -c "import torch; import torch_ccl; import os;  print(os.path.abspath(os.path.dirname(torch_ccl.__file__)))")
-$ source $torch_ccl_path/ccl/env/setvars.sh
 $ mpirun -n 2 -l python profiling.py
 ```
 
