@@ -38,6 +38,7 @@ To install `torch-ccl`:
    git clone https://github.com/pytorch/pytorch.git
    cd pytorch 
    git checkout v1.5.0-rc3
+   cd ../
 ```
 2. clone the `torch-ccl`.
 
