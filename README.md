@@ -43,9 +43,9 @@ To install `torch-ccl`:
 2. clone the `torch-ccl`.
 
 ```bash
- git clone https://github.com/intel/torch-ccl.git && cd torch-ccl 
- git submodule sync 
- git submodule update --init --recursive 
+   git clone https://github.com/intel/torch-ccl.git && cd torch-ccl 
+   git submodule sync 
+   git submodule update --init --recursive 
 
 ```
 3. Install pytorch and torch-ccl
@@ -62,11 +62,11 @@ To install `torch-ccl`:
 4. oneCCL is used as third party repo of torch-ccl but you need to source the oneCCL environment before runing.
 
 ```bash
-$ source <torch_ccl_path>/ccl/env/setvars.sh
+   source <torch_ccl_path>/ccl/env/setvars.sh
 
-for example: 
-$torch_ccl_path=$CONDA_PREFIX/lib/python3.7/site-packages/torch_ccl-1.0.1-py3.7-linux-x86_64.egg/
-$source <torch_ccl_path>/ccl/env/setvars.sh
+   for example: 
+   torch_ccl_path=$CONDA_PREFIX/lib/python3.7/site-packages/torch_ccl-1.0.1-py3.7-linux-x86_64.egg/
+   source <torch_ccl_path>/ccl/env/setvars.sh
 ```
 
 
