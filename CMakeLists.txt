@@ -24,8 +24,8 @@ function(GetOCCLLibName LIB_NAME)
 endfunction()
 
 add_library(torch_ccl SHARED ${OCCL_SRCS})
-#set_target_properties(torch_ccl PROPERTIES PREFIX "")
-#set_target_properties(torch_ccl PROPERTIES SUFFIX "")
+set_target_properties(torch_ccl PROPERTIES PREFIX "")
+set_target_properties(torch_ccl PROPERTIES SUFFIX "")
 set_target_properties(torch_ccl PROPERTIES OUTPUT_NAME ${LIB_NAME})
 set_target_properties(torch_ccl PROPERTIES POSITION_INDEPENDENT_CODE ON)
 #set_target_properties(occl PROPERTIES CXX_STANDARD 17)
@@ -76,7 +76,7 @@ if(${L0_SUPPORT} STREQUAL "YES")
 
 endif()
 
-target_include_directories(torch_ccl PRIVATE ${CCL_INCLUDE_DIR} ${PYTHON_INCLUDE_DIRS} ${PYTORCH_INCLUDE_DIRS} ${IPEX_INCLUDE_DIRS})
+target_include_directories(torch_ccl PRIVATE ${CCL_INCLUDE_DIRS} ${PYTHON_INCLUDE_DIRS} ${PYTORCH_INCLUDE_DIRS} ${IPEX_INCLUDE_DIRS})
 
 IF(COMPUTE_RUNTIME STREQUAL "dpcpp" OR COMPUTE_RUNTIME STREQUAL "native")
     target_include_directories(torch_ccl PRIVATE ${SYCL_INCLUDE_DIRS})
@@ -94,7 +94,5 @@ link_directories(${PYTORCH_LIBRARY_DIRS})
 target_link_libraries(torch_ccl PUBLIC ${PYTORCH_LIBRARY_DIRS}/libtorch_python.so)
 target_link_libraries(torch_ccl PUBLIC ${IPEX_LIBRARY_DIRS}/torch_ipex.so)
 
-install(TARGETS torch_ccl
-        LIBRARY DESTINATION lib)
 #target_link_libraries(occl PUBLIC ${PYTORCH_LIBRARY_DIRS}/libc10.so)
 #target_link_libraries(occl PUBLIC ${PYTORCH_LIBRARY_DIRS}/libc10d.a)

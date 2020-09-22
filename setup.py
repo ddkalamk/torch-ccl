@@ -3,7 +3,6 @@
 import os
 import pathlib
 import shutil
-import multiprocessing
 from subprocess import check_call, check_output
 from torch.utils.cpp_extension import include_paths, library_paths
 from torch_ipex import include_paths as ipex_include_paths
@@ -74,8 +73,33 @@ def build_deps():
         f.write("git_version = {}\n".format(repr(sha)))
 
 
+def _create_build_env():
+    my_env = os.environ.copy()
+    return my_env
+
+
+def which(thefile):
+    path = os.environ.get("PATH", os.defpath).split(os.pathsep)
+    for d in path:
+        fname = os.path.join(d, thefile)
+        fnames = [fname]
+        for name in fnames:
+            if os.access(name, os.F_OK | os.X_OK) and not os.path.isdir(name):
+                return name
+    return None
+
+
+def defines(args, **kwargs):
+    "Adds definitions to a cmake argument list."
+    for key, value in sorted(kwargs.items()):
+        if value is not None:
+            args.append('-D{}={}'.format(key, value))
+
+
 class CMakeExtension(Extension):
     """CMake extension"""
+
+
     def __init__(self, name, cmake_file, runtime='native'):
         super().__init__(name, [])
         self.build_dir = None
@@ -83,7 +107,6 @@ class CMakeExtension(Extension):
         self.runtime = runtime
         self.debug = True
         self._cmake_command = CMakeExtension._get_cmake_command()
-
 
     @staticmethod
     def _get_version(cmd):
@@ -94,20 +117,9 @@ class CMakeExtension(Extension):
                 return LooseVersion(line.strip().split(' ')[2])
         raise RuntimeError('no version found')
 
-
     @staticmethod
     def _get_cmake_command():
         """Returns cmake command."""
-
-        def which(thefile):
-            path = os.environ.get("PATH", os.defpath).split(os.pathsep)
-            for d in path:
-                fname = os.path.join(d, thefile)
-                fnames = [fname]
-                for name in fnames:
-                    if os.access(name, os.F_OK | os.X_OK) and not os.path.isdir(name):
-                        return name
-            return None
 
         cmake_command = which('cmake')
         cmake3 = which('cmake3')
@@ -144,7 +156,7 @@ class CMakeExtension(Extension):
 
         command = [self._cmake_command] + args
         print(' '.join(command))
-        check_call(command, cwd=self.build_dir, env=env)
+        # check_call(command, cwd=self.build_dir, env=env)
 
 
     def generate(self, my_env, build_dir, install_prefix, python_lib):
@@ -167,7 +179,7 @@ class CMakeExtension(Extension):
             # The default value cannot be easily obtained in CMakeLists.txt. We set it here.
             # 'CMAKE_PREFIX_PATH': distutils.sysconfig.get_python_lib()
             'CMAKE_BUILD_TYPE': 'Debug' if self.debug else 'Release',
-            'CMAKE_INSTALL_PREFIX': install_prefix,
+            'CMAKE_LIBRARY_OUTPUT_DIRECTORY': install_prefix,
             'PYTHON_INCLUDE_DIRS': str(distutils.sysconfig.get_python_inc()),
             'PYTORCH_INCLUDE_DIRS': convert_cmake_dirs(include_paths()),
             'PYTORCH_LIBRARY_DIRS': convert_cmake_dirs(library_paths()),
@@ -186,12 +198,16 @@ class CMakeExtension(Extension):
         elif self.runtime == "native:":
             pass
 
-        CMakeExtension.defines(cmake_args, CMAKE_C_COMPILER="clang")
-        CMakeExtension.defines(cmake_args, CMAKE_CXX_COMPILER="clang++")
-        CMakeExtension.defines(cmake_args, **build_options)
+        defines(cmake_args, CMAKE_C_COMPILER="clang")
+        defines(cmake_args, CMAKE_CXX_COMPILER="clang++")
+        defines(cmake_args, **build_options)
         base_dir = os.path.dirname(os.path.abspath(__file__))
         cmake_args.append(base_dir)
+
+        print("johnlu run cmake")
+        self.run(cmake_args, env=my_env)
         if not os.path.exists(self._cmake_cache_file):
+            # Everything's in place. Do not rerun.
             self.run(cmake_args, env=my_env)
 
 
@@ -214,6 +230,7 @@ class BuildCMakeExt(build_ext):
             if isinstance(extension, CMakeExtension):
                 self.build_cmake(extension)
 
+        # super().run()
 
     def build_cmake(self, extension: CMakeExtension):
         """
@@ -225,27 +242,29 @@ class BuildCMakeExt(build_ext):
         self.announce("Preparing the build environment", level=3)
         build_dir = pathlib.Path('.'.join([self.build_temp, extension.name]))
         extension_path = pathlib.Path(self.get_ext_fullpath(extension.name))
+
         build_dir.mkdir(parents=True, exist_ok=True)
+        install_dir = str(extension_path.parent.absolute()) + '/torch_ccl/lib'
+        # extension_path.parent.absolute().mkdir(parents=True, exist_ok=True)
 
         # Now that the necessary directories are created, build
-        self.announce("Configure cmake project", level=3)
-        my_env = BuildCMakeExt._create_build_env()
-        install_dir = '/'.join([str(extension_path.parent.absolute()), self.distribution.packages[0]])
+        self.announce("Configuring cmake project", level=3)
+
+        my_env = _create_build_env()
+
         extension.generate(my_env,
                            build_dir,
                            install_dir,
                            extension_path.name)
 
         # Build the target
-        self.announce("Build cmake project", level=3)
-        extension.build(my_env)
+        self.announce("Building binaries", level=3)
 
+        build_args = [
+            '--', '-j4'
+        ]
 
-    @staticmethod
-    def _create_build_env():
-        my_env = os.environ.copy()
-        return my_env
-
+        self.spawn(['cmake', '--build', str(build_dir)] + build_args)
 
 
 class Clean(clean):
@@ -276,7 +295,7 @@ if __name__ == '__main__':
   setup(
       name=package_name,
       version=version,
-      ext_modules=[CMakeExtension("liboccl",       "./CMakeLists.txt", runtime='native'),
+      ext_modules=[#CMakeExtension("liboccl",       "./CMakeLists.txt", runtime='native'),
                    CMakeExtension("liboccl_dpcpp", "./CMakeLists.txt", runtime='dpcpp')],
       packages=['torch_ccl'],
       package_data={

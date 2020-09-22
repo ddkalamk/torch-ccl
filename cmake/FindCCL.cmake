@@ -23,8 +23,7 @@ find_path(CCL_INCLUDE_DIR
   PATHS
     ${CCL_INSTALL_DIR}
   PATH_SUFFIXES
-    include/cpu_gpu_dpcpp
-    include)
+    include/oneapi)
 find_library(CCL_LIBRARY
               NAMES
                 ccl
@@ -36,7 +35,7 @@ find_library(CCL_LIBRARY
 
 
 set(CCL_LIBRARIES ${CCL_LIBRARY})
-set(CCL_INCLUDE_DIRS ${CCL_INCLUDE_DIR})
+set(CCL_INCLUDE_DIRS ${CCL_INCLUDE_DIR}/../)
 
 include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(
@@ -48,5 +47,7 @@ find_package_handle_standard_args(
 mark_as_advanced(
   CCL_INCLUDE_DIR
   CCL_LIBRARY)
+
+MESSAGE(STATUS "CCL_INCLUDE_DIRS ${CCL_INCLUDE_DIRS}")
 
 

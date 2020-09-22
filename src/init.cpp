@@ -70,17 +70,12 @@ PYBIND11_MODULE(OCCL_LIBNAME, m) {
 //    py::arg("interface") = "");
 
   processGroupOCCL
-    .def(py::init<
-//      const std::shared_ptr<::c10d::Store>&,
-      int,
-      int//,
-      /*std::chrono::milliseconds*/>())
     .def(
       py::init([](const std::shared_ptr<::c10d::Store>& store,
                   int rank,
                   int size,
                   std::chrono::milliseconds timeout) {
-        return std::make_shared<::c10d::ProcessGroupCCL>(rank, size);
+        return std::make_shared<::c10d::ProcessGroupCCL>(store, rank, size, timeout);
       }),
       py::arg("store"),
       py::arg("rank"),

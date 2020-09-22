@@ -1,19 +1,47 @@
+/*
+ * Copyright (c) 2020, Intel Corporation
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * 3. Neither the name of the Intel Corporation nor the names of its contributors
+ *    may be used to endorse or promote products derived from this software
+ *    without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
+
 #pragma once
 
 
-#include <deque>
 #include <exception>
 #include <memory>
 #include <mutex>
-#include <thread>
 #include <vector>
 
 #include <c10d/ProcessGroup.hpp>
 #include <c10d/Store.hpp>
 #include <c10d/Types.hpp>
 #include <c10d/Utils.hpp>
-
-#include <ccl.hpp>
+#include <oneapi/ccl.hpp>
 
 namespace c10d {
 
@@ -24,227 +52,187 @@ namespace c10d {
 // All functions on this class are expected to be called in the same
 // order across processes in the group.
 //
-// All collective functions provided by this class is scheduled for asynchronous execution by CCL.
+// All collective functions provided by this class are scheduled
+// for asynchronous execution by CCL.
 //
 // Also note that ProcessGroupCCL only supports a single Tensor operation. In
 // other words, the size of the input Tensor vector should always be 1.
 //
-// RAII CCL communicators collector
-class CCLCommsCollector {
-public:
-  explicit CCLCommsCollector(ccl::communicator_t gcomm, std::vector<ccl::communicator_t> comms) :
-    group_gomm(std::move(gcomm)),
-    gpu_comms(std::move(comms))
-  {}
 
-  ~CCLCommsCollector() noexcept(false) {
-  }
-
-  CCLCommsCollector() = delete;
-
-  // Must not be copyable
-  CCLCommsCollector(const CCLCommsCollector&) = delete;
-  CCLCommsCollector& operator=(const CCLCommsCollector&) = delete;
-
-  // Move constructable
-  CCLCommsCollector(CCLCommsCollector&& other) {
-    std::swap(group_gomm, other.group_gomm);
-    std::swap(gpu_comms, other.gpu_comms);
-  }
-  // Move assignable
-  CCLCommsCollector& operator=(CCLCommsCollector&& other) {
-    std::swap(group_gomm, other.group_gomm);
-    std::swap(gpu_comms, other.gpu_comms);
-    return *this;
-  }
+class ProcessGroupCCL : public ProcessGroup
+{
 
 public:
-  ccl::communicator_t group_gomm;
-  std::vector<ccl::communicator_t> gpu_comms;
-};
 
-class ProcessGroupCCL : public ProcessGroup, public std::enable_shared_from_this<ProcessGroupCCL> {
-public:
-  class WorkCCL final : public ProcessGroup::Work {
+  class WorkCCL : public ProcessGroup::Work
+  {
   public:
-    WorkCCL(std::vector<at::Device> devices)
-    {
-      requests_.resize(devices.size());
-    }
 
-    WorkCCL(ccl::communicator::coll_request_t& req)
-    {
-      requests_.push_back(std::move(req));
-    }
+      WorkCCL() {}
+      WorkCCL(std::shared_ptr<ccl::request> req,
+              const std::vector<at::Tensor>& tensors,
+              std::string&& debugName) :
+          req(req),
+          tensors(tensors),
+          debugName(debugName)
+      {}
 
-    WorkCCL() {}
+      WorkCCL(std::shared_ptr<ccl::request> req,
+              std::vector<at::Tensor>&& tensors,
+              std::string&& debugName) :
+          req(req),
+          tensors(std::move(tensors)),
+          debugName(debugName)
+      {}
 
-    virtual ~WorkCCL();
+      WorkCCL(const std::vector<at::Tensor>& tensors,
+              std::string&& debugName) :
+          tensors(tensors),
+          debugName(debugName)
+      {}
 
-    bool isCompleted() override;
+      virtual ~WorkCCL();
 
-    bool isSuccess() const override;
+      bool isCompleted() override;
+      bool isSuccess() const override;
+      bool wait() override;
+      void abort() override;
 
-    bool wait() override;
+      void setRequest(std::shared_ptr<ccl::request> r)
+      {
+          TORCH_CHECK(!req, "request is already set");
+          req = r;
+      }
+
+      std::vector<at::Tensor>& getTensors()
+      {
+          return tensors;
+      }
 
   protected:
-    std::vector<ccl::communicator::coll_request_t> requests_;
-    mutable std::mutex mutex_;
+      std::shared_ptr<ccl::request> req;
 
-    friend class ProcessGroupCCL;
+      /*
+          keep copy of tensors to incrememt tensor reference counters
+          while CCL operation is in progress
+      */
+      std::vector<at::Tensor> tensors;
+      std::string debugName;
+
+      friend class ProcessGroupCCL;
   };
 
-  explicit ProcessGroupCCL(int rank = -1, int size = -1);
+  explicit ProcessGroupCCL(const std::shared_ptr<Store>& store, int rank, int size, const std::chrono::milliseconds& op_time_out);
   virtual ~ProcessGroupCCL();
 
   std::shared_ptr<ProcessGroup::Work> broadcast(
-          std::vector<at::Tensor>& data,
-          const BroadcastOptions& opts = BroadcastOptions()) override;
+      std::vector<at::Tensor>& data,
+      const BroadcastOptions& opts = BroadcastOptions()) override;
 
   std::shared_ptr<ProcessGroup::Work> allreduce(
-          std::vector<at::Tensor>& tensors,
-          const AllreduceOptions& opts = AllreduceOptions()) override;
-
-  std::shared_ptr<ProcessGroup::Work> reduce(
-          std::vector<at::Tensor>& tensors,
-          const ReduceOptions& opts = ReduceOptions()) override;
-
-  std::shared_ptr<ProcessGroup::Work> allgather(
-          std::vector<std::vector<at::Tensor>>& outputTensors,
-          std::vector<at::Tensor>& inputTensors,
-          const AllgatherOptions& opts = AllgatherOptions()) override;
-
-  std::shared_ptr<ProcessGroup::Work> barrier(
-          const BarrierOptions& opts = BarrierOptions()) override;
-
-  // Unsupported Ops
-  std::shared_ptr<ProcessGroup::Work> gather(
-          std::vector<std::vector<at::Tensor>>& output_tensors_list,
-          std::vector<at::Tensor>& input_tensors,
-          const GatherOptions& opts = GatherOptions()) override;
-
-  std::shared_ptr<ProcessGroup::Work> scatter(
-          std::vector<at::Tensor>& outputTensors,
-          std::vector<std::vector<at::Tensor>>& inputTensors,
-          const ScatterOptions& opts = ScatterOptions()) override;
-
-  std::shared_ptr<ProcessGroup::Work> reduce_scatter(
-          std::vector<at::Tensor>& outputTensors,
-          std::vector<std::vector<at::Tensor>>& inputTensors,
-          const ReduceScatterOptions& opts = ReduceScatterOptions()) override;
-
-  std::shared_ptr<ProcessGroup::Work> send(
-          std::vector<at::Tensor>& tensors,
-          int dstRank,
-          int tag) override;
-
-  std::shared_ptr<ProcessGroup::Work> recv(
-          std::vector<at::Tensor>& tensors,
-          int srcRank,
-          int tag) override;
-
-  std::shared_ptr<ProcessGroup::Work> recvAnysource(
-          std::vector<at::Tensor>& tensor,
-          int tag) override;
-
-  std::shared_ptr<ProcessGroup::Work> allgather_base(
-    at::Tensor& outputBuffer,
-    at::Tensor& inputBuffer,
-    const AllgatherOptions& opts = AllgatherOptions()) override;
+      std::vector<at::Tensor>& tensors,
+      const AllreduceOptions& opts = AllreduceOptions()) override;
 
   std::shared_ptr<ProcessGroup::Work> allreduce_coalesced(
-    std::vector<at::Tensor>& tensors,
-    const AllreduceCoalescedOptions& opts = AllreduceCoalescedOptions()) override;
+      std::vector<at::Tensor>& tensors,
+      const AllreduceCoalescedOptions& opts =
+          AllreduceCoalescedOptions()) override;
 
-  // Creating a new ProcessGroupCCL, will initiialize CCL if not initialized
-  static std::shared_ptr<ProcessGroup> createProcessGroupCCL(const std::shared_ptr<Store>& store,
-                                                             int rank,
-                                                             int size,
-                                                             const std::chrono::milliseconds& op_time_out =
-                                                             std::chrono::milliseconds(OP_TIMEOUT_MILLIS));
+  std::shared_ptr<ProcessGroup::Work> reduce(
+      std::vector<at::Tensor>& tensors,
+      const ReduceOptions& opts = ReduceOptions()) override;
 
-  static const int64_t OP_TIMEOUT_MILLIS;
-private:
+  std::shared_ptr<ProcessGroup::Work> allgather(
+      std::vector<std::vector<at::Tensor>>& outputTensors,
+      std::vector<at::Tensor>& inputTensors,
+      const AllgatherOptions& opts = AllgatherOptions()) override;
 
-  // Helper that either looks up the cached CCL communicators or creates
-  // a new set of CCL communicators as a cache entry
-  std::vector<ccl::communicator_t>& getCCLComm(
-          const std::string& devicesKey,
-          const std::vector<at::Device>& devices);
+  std::shared_ptr<ProcessGroup::Work> allgather_base(
+      at::Tensor& outputBuffer,
+      at::Tensor& inputBuffer,
+      const AllgatherOptions& opts = AllgatherOptions()) override;
 
-  // Helper that encapsulates work shared across all collective communication
-  // primitives.  The callbacks have the following signatures:
-  //
-  //    ncclResult_t fn(at::Tensor& input, at::Tensor& output,
-  //                    ncclComm_t, at::cuda::CUDAStream&);
-  //    void {pre,post}(std::vector<at::cuda::CUDAStream&>);
-  template <typename fn, typename input_t, typename output_t>
-  std::shared_ptr<ProcessGroup::Work> collective(
-          std::vector<input_t>& input,
-          std::vector<output_t>& output,
-          fn fun);
-  template <typename fn, typename pre_process, typename post_process, typename input_t, typename output_t>
-  std::shared_ptr<ProcessGroup::Work> collective(
-          std::vector<input_t>& input,
-          std::vector<output_t>& output,
-          fn fun,
-          pre_process pre,
-          post_process post);
+  std::shared_ptr<ProcessGroup::Work> allgather_coalesced(
+      std::vector<std::vector<at::Tensor>>& outputTensorLists,
+      std::vector<at::Tensor>& inputTensors,
+      const AllgatherOptions& opts = AllgatherOptions()) override;
 
-  template <typename fn, typename pre_process, typename post_process, typename input_t, typename output_t>
-  std::shared_ptr<ProcessGroup::Work> collective_gpu(
-    std::vector<input_t>& inputs,
-    std::vector<output_t>& outputs,
-    fn fun,
-    pre_process pre,
-    post_process post);
+  std::shared_ptr<ProcessGroup::Work> gather(
+      std::vector<std::vector<at::Tensor>>& outputTensors,
+      std::vector<at::Tensor>& inputTensors,
+      const GatherOptions& opts = GatherOptions()) override;
 
-  template <typename fn, typename pre_process, typename post_process, typename input_t, typename output_t>
-  std::shared_ptr<ProcessGroup::Work> collective_cpu(
-    std::vector<input_t>& inputs,
-    std::vector<output_t>& outputs,
-    fn fun,
-    pre_process pre,
-    post_process post);
+  std::shared_ptr<ProcessGroup::Work> scatter(
+      std::vector<at::Tensor>& outputTensors,
+      std::vector<std::vector<at::Tensor>>& inputTensors,
+      const ScatterOptions& opts = ScatterOptions()) override;
 
-protected:
+  std::shared_ptr<ProcessGroup::Work> reduce_scatter(
+      std::vector<at::Tensor>& outputTensors,
+      std::vector<std::vector<at::Tensor>>& inputTensors,
+      const ReduceScatterOptions& opts = ReduceScatterOptions()) override;
 
-  // Global states
-  static void cclInit();
-  static void cclExit();
-  static std::once_flag init_flag;
-  static std::mutex pg_global_mutex;
-  static ccl::coll_attr attr;
-  ccl::communicator_t global_comm;
-  std::vector<ccl::stream_t> cpu_streams;
+  std::shared_ptr<ProcessGroup::Work> alltoall_base(
+      at::Tensor& outputTensor,
+      at::Tensor& inputTensor,
+      std::vector<int64_t>& outputSplitSizes,
+      std::vector<int64_t>& inputSplitSizes,
+      const AllToAllOptions& opts = AllToAllOptions()) override;
 
-  // The steams used by CCL kernels
-  std::unordered_map<std::string, std::vector<ccl::stream_t >> gpu_streams;
+  std::shared_ptr<ProcessGroup::Work> alltoall(
+      std::vector<at::Tensor>& outputTensors,
+      std::vector<at::Tensor>& inputTensors,
+      const AllToAllOptions& opts = AllToAllOptions()) override;
 
-  // The CCL communicator that the process group has cached.
-  // The key is a list of GPU devices that an operation is operating on
-  // The GPU devices are stored in a device sequence and the cache CCL
-  // communicator is associated with this GPU device sequence
-  //
-  // e.g. If the process group op only uses device 0, then the value of
-  // the used device string stored (value of the hashmap) would be "0".
-  //
-  //      If the process group op uses device 0 - 7 and the each tensor of the
-  //      input tensor list is on device, 0, 1, 2, 3, 4, 5, 6, 7 separately,
-  //      then the value of the used device string (key) stored would be
-  //      "0,1,2,3,4,5,6,7"
-  //
-  //      If the process group op uses device 0 - 7 and the each tensor of the
-  //      input tensor list is on device, 0, 4, 5, 6, 7, 1, 2, 3 separately,
-  //      then the value of the used device string stored would be
-  //      "0,4,5,6,7,1,2,3"
-  //
-  //      Note that the order of the device for the tensor list matters.
-  using ccl_comm_t = std::shared_ptr<class CCLCommsCollector>;
-  std::unordered_map<std::string, ccl_comm_t> gpu_comms;
+  std::shared_ptr<ProcessGroup::Work> send(
+      std::vector<at::Tensor>& tensors,
+      int dstRank,
+      int tag) override;
 
-  // GPU device indexes used for all collectives in this group
-  std::set<int> used_gpu_device_idxs;
+  std::shared_ptr<ProcessGroup::Work> recv(
+      std::vector<at::Tensor>& tensors,
+      int srcRank,
+      int tag) override;
+
+  std::shared_ptr<ProcessGroup::Work> recvAnysource(
+      std::vector<at::Tensor>& tensor,
+      int tag) override;
+
+  std::shared_ptr<ProcessGroup::Work> barrier(
+      const BarrierOptions& opts = BarrierOptions()) override;
+
+  // create a new ProcessGroupCCL and initialize CCL if not initialized
+  static std::shared_ptr<ProcessGroup> createProcessGroupCCL(
+      const std::shared_ptr<Store>& store,
+      int rank = -1,
+      int size = -1,
+      const std::chrono::milliseconds& op_time_out =
+      std::chrono::milliseconds(OP_TIMEOUT_MILLIS));
+  static const int64_t OP_TIMEOUT_MILLIS = 1000;
+ protected:
+
+  static void cclInitOnce();
+  static void cclFini();
+
+  // Store that is used to exchange ccl kvs
+  std::shared_ptr<Store> store_;
+  std::chrono::milliseconds op_timeout_millis;
+
+
+  // ID of this process group
+  std::string processGroupID_;
+
+  // Group Prefix and ID of this process group
+  std::string groupPgID_;
+
+  ccl::communicator comm;
+
+  // processGroupID tracking
+  static std::mutex pgTrackingLock_;
+
+  static std::unordered_map<std::string, ssize_t> pgUniqueNCCLIDCnt_;
+
+  static std::unordered_map<std::string, ssize_t> processGroupCounterMap_;
 };
 
 } // namespace c10d
