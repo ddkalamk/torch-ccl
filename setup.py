@@ -3,6 +3,7 @@
 import os
 import pathlib
 import shutil
+import multiprocessing
 from subprocess import check_call, check_output
 from torch.utils.cpp_extension import include_paths, library_paths
 from torch_ipex import include_paths as ipex_include_paths
@@ -203,19 +204,9 @@ class CMakeExtension(Extension):
         defines(cmake_args, **build_options)
         base_dir = os.path.dirname(os.path.abspath(__file__))
         cmake_args.append(base_dir)
-
-        print("johnlu run cmake")
-        self.run(cmake_args, env=my_env)
         if not os.path.exists(self._cmake_cache_file):
             # Everything's in place. Do not rerun.
             self.run(cmake_args, env=my_env)
-
-
-    def build(self, my_env):
-        max_jobs = os.getenv('MAX_JOBS', str(multiprocessing.cpu_count()))
-        build_args = ['--build', '.', '--target', 'install', '--', '-j', max_jobs]
-        self.run(build_args, my_env)
-
 
 
 class BuildCMakeExt(build_ext):
@@ -260,8 +251,9 @@ class BuildCMakeExt(build_ext):
         # Build the target
         self.announce("Building binaries", level=3)
 
+        max_jobs = os.getenv('MAX_JOBS', str(multiprocessing.cpu_count()))
         build_args = [
-            '--', '-j4'
+            '--', '-j', max_jobs
         ]
 
         self.spawn(['cmake', '--build', str(build_dir)] + build_args)

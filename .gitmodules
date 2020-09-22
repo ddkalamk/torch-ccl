@@ -1,0 +1,4 @@
+[submodule "third_party/oneCCL"]
+	path = third_party/oneCCL
+	url = https://github.com/oneapi-src/oneCCL.git
+        branch = 2021.1-beta07-1

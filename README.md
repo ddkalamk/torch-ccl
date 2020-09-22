@@ -7,37 +7,68 @@ This repository holds PyTorch bindings maintained by Intel for the Intel® oneAP
 
 [PyTorch](https://github.com/pytorch/pytorch) is an open-source machine learning framework.
 
-[Intel oneCCL](https://github.com/intel/oneccl) (collective commnication library) is a library for efficient distributed deep learning training implementing such collectives like allreduce, allgather, bcast. For more information on oneCCL, please refer to the [oneCCL documentation](https://intel.github.io/oneccl).
+[Intel® oneCCL](https://github.com/oneapi-src/oneCCL) (collective commnications library) is a library for efficient distributed deep learning training implementing such collectives like allreduce, allgather, alltoall. For more information on oneCCL, please refer to the [oneCCL documentation](https://oneapi-src.github.io/oneCCL).
 
-`torch-ccl` module implements PyTorch C10D ProcessGroup API and can be dynamically loaded as external ProcessGroup.
+`torch-ccl` module implements PyTorch C10D ProcessGroup API and can be dynamically loaded as external ProcessGroup and only works on Linux platform now.
 
+# Pytorch API Align
+We recommend Anaconda as Python package management system. The following is the corresponding branchs (tags) of torch-ccl and supported Pytorch.
+
+   | ``torch`` | ``torch-ccl`` |  
+   | :-----:| :---: |  
+   |  ``master`` |  ``master``  |
+   | [v1.6.0](https://github.com/pytorch/pytorch/tree/v1.6.0) |  [ccl_torch1.6](https://github.com/intel/torch-ccl/tree/ccl_torch1.6)   | 
+   | [v1.5-rc3](https://github.com/pytorch/pytorch/tree/v1.5.0-rc3) |   [beta09](https://github.com/intel/torch-ccl/tree/beta09)   |
+
+The usage details can be found in the README of corresponding branch. The following part is about the usage of beta09 tag. if you want to use other version of torch-ccl please checkout to that branch(tag). For pytorch-1.5.0-rc3, the [#PR28068](https://github.com/pytorch/pytorch/pull/28068) and [#PR32361](https://github.com/pytorch/pytorch/pull/32361) are need to dynamicall register external ProcessGroup and enable ``alltoall`` collective communication primitive. The patch file about these two PRs is in ``patches`` directory and you can use it directly. 
 
 # Requirements
 
-PyTorch 1.3.x or newer (TODO - specify version with support of dynamic loading of external ProcessGroup)
+Python 3.6 or later and a C++14 compiler
 
-Intel® oneAPI Collective Communications Library
-
+pytorch-1.5.0-rc3  branch.
 
 # Installation
 
 To install `torch-ccl`:
 
-1. Install PyTorch.
+1. clone [PyTorch](https://github.com/pytorch/pytorch) from source code.
 
-2. Install Intel oneCCL (please refer to [this page](https://intel.github.io/oneccl/installation.html)).
+```bash
+   git clone https://github.com/pytorch/pytorch.git
+   cd pytorch 
+   git checkout v1.5.0-rc3
+   cd ../
+```
+2. clone the `torch-ccl`.
 
-3. Source the oneCCL environment.
+```bash
+   git clone https://github.com/intel/torch-ccl.git && cd torch-ccl 
+   git submodule sync 
+   git submodule update --init --recursive 
 
 ```
-$ source <ccl_install_path>/env/setvars.sh
+3. Install pytorch and torch-ccl
+
+```bash
+   cd ../pytorch 
+   git apply ../torch-ccl/patches/enable_torch_ccl_for_pytorch1.5.0-rc3.diff
+   git submodule sync
+   git submodule update --init --recursive
+   python setup.py install 
+   cd ../torch-ccl
+   python setup.py install
+```    
+4. oneCCL is used as third party repo of torch-ccl but you need to source the oneCCL environment before runing.
+
+```bash
+   source <torch_ccl_path>/ccl/env/setvars.sh
+
+   for example: 
+   torch_ccl_path=$CONDA_PREFIX/lib/python3.7/site-packages/torch_ccl-1.0.1-py3.7-linux-x86_64.egg/
+   source <torch_ccl_path>/ccl/env/setvars.sh
 ```
 
-4. Install the `torch-ccl` pip package.
-
-```
-$ pip setup.py install 
-```
 
 
 # Usage
@@ -52,16 +83,89 @@ import torch_ccl
 
 ...
 
+os.environ['MASTER_ADDR'] = '127.0.0.1'
+os.environ['MASTER_PORT'] = '29500'
+os.environ['RANK'] = os.environ.get('PMI_RANK', -1)
+os.environ['WORLD_SIZE'] = os.environ.get('PMI_SIZE', -1)
+
 backend = 'ccl'
 dist.init_process_group(backend, ...)
+my_rank = dist.get_rank()
+my_size = dist.get_world_size()
+print("my rank = %d  my size = %d" % (my_rank, my_size))
+
+...
+
 model = torch.nn.parallel.DistributedDataParallel(model, ...)
 
 ...
 ```
 
 ```
-$ source <ccl_install_path>/env/setvars.sh
+$ source <torch_ccl_path>/ccl/env/setvars.sh
 $ mpirun -n <N> -ppn <PPN> -f <hostfile> python example.py
+```
+
+
+# Performance Debugging
+
+For debugging performance of communication primitives PyTorch's [Autograd profiler](https://pytorch.org/docs/stable/autograd.html#profiler)
+can be used to inspect time spent inside oneCCL calls.
+
+Example:
+
+profiling.py
+
+```python
+
+import torch.nn.parallel
+import torch.distributed as dist
+import torch_ccl
+
+backend = 'ccl'
+dist.init_process_group(backend, ...)
+my_rank = dist.get_rank()
+my_size = dist.get_world_size()
+print("my rank = %d  my size = %d" % (my_rank, my_size))
+
+x = torch.ones([2, 2])
+y = torch.ones([4, 4])
+with torch.autograd.profiler.profile(record_shapes=True) as prof:
+    for _ in range(10):
+        dist.all_reduce(x)
+        dist.all_reduce(y)
+dist.barrier()
+print(prof.key_averages(group_by_input_shape=True).table(sort_by="self_cpu_time_total"))
+
+```
+
+```
+$ mpirun -n 2 -l python profiling.py
+```
+
+```
+[0] rank = 0, size = 2
+[0] ------------------------------  ---------------  ---------------  ---------------  ---------------  ---------------  ---------------  ---------------
+[0] Name                            Self CPU total %  Self CPU total   CPU total %      CPU total        CPU time avg     Number of Calls  Input Shapes
+[0] ------------------------------  ---------------  ---------------  ---------------  ---------------  ---------------  ---------------  ---------------
+[0] pg::allreduce                   37.70%           61.935us         37.70%           61.935us         6.194us          10               [[2, 2]]
+[0] pg::allreduce                   23.40%           38.438us         23.40%           38.438us         3.844us          10               [[4, 4]]
+[0] pg::wait::allreduce::sz:16      19.64%           32.258us         19.64%           32.258us         3.226us          10               []
+[0] pg::wait::allreduce::sz:4       19.26%           31.634us         19.26%           31.634us         3.163us          10               []
+[0] ------------------------------  ---------------  ---------------  ---------------  ---------------  ---------------  ---------------  ---------------
+[0] Self CPU time total: 164.265us
+[0]
+[1] rank = 1, size = 2
+[1] ------------------------------  ---------------  ---------------  ---------------  ---------------  ---------------  ---------------  ---------------
+[1] Name                            Self CPU total %  Self CPU total   CPU total %      CPU total        CPU time avg     Number of Calls  Input Shapes
+[1] ------------------------------  ---------------  ---------------  ---------------  ---------------  ---------------  ---------------  ---------------
+[1] pg::allreduce                   50.27%           62.730us         50.27%           62.730us         6.273us          10               [[2, 2]]
+[1] pg::allreduce                   28.96%           36.133us         28.96%           36.133us         3.613us          10               [[4, 4]]
+[1] pg::wait::allreduce::sz:4       13.83%           17.254us         13.83%           17.254us         1.725us          10               []
+[1] pg::wait::allreduce::sz:16      6.95%            8.672us          6.95%            8.672us          0.867us          10               []
+[1] ------------------------------  ---------------  ---------------  ---------------  ---------------  ---------------  ---------------  ---------------
+[1] Self CPU time total: 124.789us
+[1]
 
 ```
 
