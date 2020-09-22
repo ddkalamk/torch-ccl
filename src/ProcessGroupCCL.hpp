@@ -31,9 +31,6 @@
 
 #pragma once
 
-#ifndef PROCESS_GROUP_CCL_TEST
-#include <pybind11/chrono.h>
-#endif
 
 #include <exception>
 #include <memory>
@@ -44,14 +41,9 @@
 #include <c10d/Store.hpp>
 #include <c10d/Types.hpp>
 #include <c10d/Utils.hpp>
-#include <ccl.hpp>
+#include <oneapi/ccl.hpp>
 
-#ifndef PROCESS_GROUP_CCL_TEST
-#include <torch/extension.h>
-#endif
-
-namespace c10d
-{
+namespace c10d {
 
 // WorkCCL is the state associated with a CCL operarion.
 //
@@ -130,7 +122,7 @@ public:
       friend class ProcessGroupCCL;
   };
 
-  explicit ProcessGroupCCL(int rank = -1, int size = -1, const std::vector<int> ranks = {});
+  explicit ProcessGroupCCL(const std::shared_ptr<Store>& store, int rank, int size, const std::chrono::milliseconds& op_time_out);
   virtual ~ProcessGroupCCL();
 
   std::shared_ptr<ProcessGroup::Work> broadcast(
@@ -214,25 +206,33 @@ public:
       const std::shared_ptr<Store>& store,
       int rank = -1,
       int size = -1,
-      const std::chrono::duration<float>& timeout = std::chrono::duration<float>(1));
-
-#ifndef PROCESS_GROUP_CCL_TEST
-  static void ProcessGroupCCLConstructor() __attribute__((constructor))
-  {
-      py::object register_backend =
-          py::module::import("torch.distributed").attr("Backend").attr("register_backend");
-      register_backend("ccl", py::cpp_function(createProcessGroupCCL));
-  }
-#endif
-
+      const std::chrono::milliseconds& op_time_out =
+      std::chrono::milliseconds(OP_TIMEOUT_MILLIS));
+  static const int64_t OP_TIMEOUT_MILLIS = 1000;
  protected:
 
   static void cclInitOnce();
   static void cclFini();
 
-  ccl::coll_attr collAttrAg;
-  ccl::communicator_t comm;
-  ccl::comm_attr_t commAttr;
+  // Store that is used to exchange ccl kvs
+  std::shared_ptr<Store> store_;
+  std::chrono::milliseconds op_timeout_millis;
+
+
+  // ID of this process group
+  std::string processGroupID_;
+
+  // Group Prefix and ID of this process group
+  std::string groupPgID_;
+
+  ccl::communicator comm;
+
+  // processGroupID tracking
+  static std::mutex pgTrackingLock_;
+
+  static std::unordered_map<std::string, ssize_t> pgUniqueNCCLIDCnt_;
+
+  static std::unordered_map<std::string, ssize_t> processGroupCounterMap_;
 };
 
 } // namespace c10d

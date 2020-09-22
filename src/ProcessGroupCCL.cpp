@@ -29,21 +29,12 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <map>
-
-#include <omp.h>
-
-//#include <ATen/record_function.h>
-#include <torch/csrc/autograd/record_function.h>
-
+#include <ATen/record_function.h>
 #include "ProcessGroupCCL.hpp"
 
-#ifndef gettid
-#include <sys/syscall.h>
-#include <sys/types.h>
-#include <unistd.h>
-#define gettid() syscall(SYS_gettid)
-#endif
+#include <map>
+#include <core/Stream.h>
+#include <core/Memory.h>
 
 namespace c10d
 {
@@ -90,13 +81,13 @@ std::map<at::ScalarType, ccl::data_type> cclDatatypes =
 #else
 std::map<at::ScalarType, ccl::datatype> cclDatatypes =
 {
-    {at::kByte, ccl::datatype::dt_char},
-    {at::kChar, ccl::datatype::dt_char},
-    {at::kDouble, ccl::datatype::dt_double},
-    {at::kBFloat16, ccl::datatype::dt_bfp16},
-    {at::kFloat, ccl::datatype::dt_float},
-    {at::kInt, ccl::datatype::dt_int},
-    {at::kLong, ccl::datatype::dt_int64}
+    {at::kByte, ccl::datatype::uint8},
+    {at::kChar, ccl::datatype::uint8},
+    {at::kDouble, ccl::datatype::float64},
+    {at::kBFloat16, ccl::datatype::bfloat16},
+    {at::kFloat, ccl::datatype::float32},
+//    {at::kInt, ccl::datatype::int64},
+    {at::kLong, ccl::datatype::int64}
 };
 
 std::map<ccl_datatype_t, at::ScalarType> ptDatatypes =
@@ -126,8 +117,7 @@ std::ostream& operator << (std::ostream& os, const SparseResultMode& mode)
 
 static std::once_flag cclInitOnceFlag;
 static std::mutex globalMutex;
-static ccl::communicator_t globalComm;
-static ccl_sparse_coalesce_mode_t sparseCoalesceMode;
+static ccl::sparse_coalesce_mode sparseCoalesceMode;
 static SparseResultMode sparseResultMode;
 
 // Checking the input tensor's validity
@@ -338,25 +328,26 @@ void ProcessGroupCCL::WorkCCL::abort()
 void ProcessGroupCCL::cclFini()
 {
     std::unique_lock<std::mutex> globalLock(globalMutex);
-    globalComm.reset();
 }
 
 void ProcessGroupCCL::cclInitOnce()
 {
     std::call_once(cclInitOnceFlag, []() {
 
-      CCL_CHECK(globalComm = ccl::environment::instance().create_communicator());
+      /* create CCL environment at once */
+      auto &env = ccl::environment::instance();
+      (void)env;
 
       if (std::atexit(ProcessGroupCCL::cclFini))
       {
           throw std::runtime_error("failed to register the CCL exit handler");
       }
 
-      sparseCoalesceMode = ccl_sparse_coalesce_regular;
+      sparseCoalesceMode = ccl::sparse_coalesce_mode::regular;
       const char* sparseCoalesceModeEnv = getenv("CCL_SPARSE_COALESCE_MODE");
       if (sparseCoalesceModeEnv)
       {
-          sparseCoalesceMode = (ccl_sparse_coalesce_mode_t)(atoi(sparseCoalesceModeEnv));
+          sparseCoalesceMode = ccl::sparse_coalesce_mode(atoi(sparseCoalesceModeEnv));
       }
 
       sparseResultMode = SparseResultMode::DIRECT;
@@ -366,11 +357,8 @@ void ProcessGroupCCL::cclInitOnce()
           sparseResultMode = (SparseResultMode)atoi(sparseResultModeEnv);
       }
 
-      if (globalComm->rank() == 0)
-      {
-          printf("sparse options: coalesce mode %d, result mode %d\n",
-                 sparseCoalesceMode, (int)sparseResultMode);
-      }
+      printf("sparse options: coalesce mode %d, result mode %d\n",
+             sparseCoalesceMode, (int)sparseResultMode);
   });
 }
 
@@ -378,60 +366,56 @@ std::shared_ptr<ProcessGroup> ProcessGroupCCL::createProcessGroupCCL(
     const std::shared_ptr<Store>& store,
     int rank,
     int size,
-    const std::chrono::duration<float>& timeout)
+    const std::chrono::milliseconds& op_time_out)
 {
     cclInitOnce();
 
-    TORCH_CHECK(((rank == -1) || (size_t)rank == globalComm->rank()),
-        "unexpected rank " + std::to_string(rank) +
-        ", CCL rank " + std::to_string(globalComm->rank()));
+//    TORCH_CHECK(((rank == -1) || (size_t)rank == globalComm->rank()),
+//        "unexpected rank " + std::to_string(rank) +
+//        ", CCL rank " + std::to_string(globalComm->rank()));
+//
+//    TORCH_CHECK(((size == -1) || (size_t)size == globalComm->size()),
+//        "unexpected size " + std::to_string(size) +
+//        ", CCL size " + std::to_string(globalComm->size()));
 
-    TORCH_CHECK(((size == -1) || (size_t)size == globalComm->size()),
-        "unexpected size " + std::to_string(size) +
-        ", CCL size " + std::to_string(globalComm->size()));
-
-    return std::make_shared<ProcessGroupCCL>(rank, size);
+    return std::make_shared<ProcessGroupCCL>(store, rank, size, op_time_out);
 }
 
-ProcessGroupCCL::ProcessGroupCCL(int rank, int size, const std::vector<int> ranks)
-    : ProcessGroup(ranks.empty() ? globalComm->rank() : rank,
-                   ranks.empty() ? globalComm->size() : size),
-      collAttrAg({})
+ProcessGroupCCL::ProcessGroupCCL(const std::shared_ptr<Store>& store, int rank, int size, const std::chrono::milliseconds& op_time_out)
+    : ProcessGroup(rank, size), store_(store), op_timeout_millis(op_time_out),
+      comm([=](){
+
+        ccl::shared_ptr_class<ccl::kvs> kvs;
+
+        std::string storeKey = "ccl_kvs";
+
+        // Rank 0 writes to the store as bcast
+        if (rank == 0) {
+          kvs = ccl::environment::instance().create_main_kvs();
+          ccl::kvs::address_type main_addr = kvs->get_address();
+          auto ccl_kvs_addr = std::vector<uint8_t>(main_addr.begin(), main_addr.end());
+          store_->set(storeKey, ccl_kvs_addr);
+        }
+        else {
+          auto ccl_kvs_addr = store_->get(storeKey);
+          if (ccl_kvs_addr.size() != ccl::kvs::address_max_size) {
+            throw std::runtime_error(
+              "Unexpected ccl kvs addr from the store");
+          }
+          ccl::kvs::address_type main_addr;
+          std::copy_n(std::make_move_iterator(ccl_kvs_addr.begin()),
+                      ccl::kvs::address_max_size,
+                      main_addr.begin());
+          kvs = ccl::environment::instance().create_kvs(main_addr);
+        }
+
+        return ccl::environment::instance().create_communicator(size, rank, kvs);
+      }())
 {
-    std::unique_lock<std::mutex> globalLock(globalMutex);
-
-    if (ranks.empty())
-    {
-        CCL_CHECK(comm = ccl::environment::instance().create_communicator());
-    }
-    else
-    {
-        int color;
-        commAttr = ccl::environment::instance().create_host_comm_attr();
-
-        if (std::find(ranks.begin(), ranks.end(), rank) != ranks.end())
-        {
-            color = 1;
-        }
-        else
-        {
-            color = 0;
-        }
-
-        commAttr->set_value<ccl_host_color>(color);
-        CCL_CHECK(comm = ccl::environment::instance().create_communicator(commAttr));
-
-        if (commAttr->get_value<ccl_host_color>() == 0)
-        {
-            comm.reset();
-        }
-    }
 }
 
 ProcessGroupCCL::~ProcessGroupCCL()
 {
-    std::unique_lock<std::mutex> globalLock(globalMutex);
-    comm.reset();
 }
 
 std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::broadcast(
@@ -447,7 +431,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::broadcast(
 
     {
         std::unique_lock<std::mutex> globalLock(globalMutex);
-        CCL_CHECK(req = comm->bcast(tensors[0].data_ptr(),
+        CCL_CHECK(req = comm.broadcast(tensors[0].data_ptr(),
                                     (size_t)tensors[0].numel(),
                                     cclDatatypes.at(tensors[0].scalar_type()),
                                     (size_t)opts.rootRank));
@@ -549,7 +533,7 @@ ccl_status_t sparseAllreduceCompletionFn(
                                       inputTensor.sizes(),
                                       inputTensor.options());
 
-    if (sparseCoalesceMode != ccl_sparse_coalesce_disable)
+    if (sparseCoalesceMode != ccl::sparse_coalesce_mode::disable)
         resultTensor._coalesced_(true);
 
     if (sparseResultMode == SparseResultMode::COPY)
@@ -622,7 +606,7 @@ ccl_status_t sparseAllreduceAllocFn(
                                       inputTensor.sizes(),
                                       inputTensor.options());
 
-    if (sparseCoalesceMode != ccl_sparse_coalesce_disable)
+    if (sparseCoalesceMode != ccl::sparse_coalesce_mode::disable)
         resultTensor._coalesced_(true);
 
     /* propagate result using 1 way - outputTensors */
@@ -658,7 +642,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allreduce(
         {
             std::string debugName = std::string("allreduce::sz:") + std::to_string(tensors[0].numel());
             work = std::make_shared<ProcessGroupCCL::WorkCCL>(tensors, std::move(debugName));
-            CCL_CHECK(req = comm->allreduce(tensors[0].data_ptr(),
+            CCL_CHECK(req = comm.allreduce(tensors[0].data_ptr(),
                                             tensors[0].data_ptr(),
                                             (size_t)tensors[0].numel(),
                                             cclDatatypes.at(tensors[0].scalar_type()),
@@ -678,16 +662,17 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allreduce(
 
             work = std::make_shared<SparseAllreduceWork>(tensors, std::move(debugName));
 
-            ccl::coll_attr attr{};
+            auto &env = ccl::environment::instance();
+            auto attr = env.create_operation_attr<ccl::sparse_allreduce_attr>();
 
             if (sparseResultMode == SparseResultMode::DIRECT)
-                attr.sparse_allreduce_alloc_fn = sparseAllreduceAllocFn;
+                attr.set<ccl::sparse_allreduce_attr_id::alloc_fn>(sparseAllreduceAllocFn);
             else
-                attr.sparse_allreduce_completion_fn = sparseAllreduceCompletionFn;
-            attr.sparse_allreduce_fn_ctx = work.get();
-            attr.sparse_coalesce_mode = sparseCoalesceMode;
+                attr.set<ccl::sparse_allreduce_attr_id::completion_fn>(sparseAllreduceCompletionFn);
+            attr.set<ccl::sparse_allreduce_attr_id::fn_ctx>(work.get());
+            attr.set<ccl::sparse_allreduce_attr_id::coalesce_mode>(sparseCoalesceMode);
 
-            CCL_CHECK(req = comm->sparse_allreduce(indices.data_ptr(),
+            CCL_CHECK(req = comm.sparse_allreduce(indices.data_ptr(),
                                                    (size_t)indices.numel(),
                                                    values.data_ptr(),
                                                    (size_t)values.numel(),
@@ -695,7 +680,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allreduce(
                                                    cclDatatypes.at(indices.scalar_type()),
                                                    cclDatatypes.at(values.scalar_type()),
                                                    cclOps.at(opts.reduceOp),
-                                                   &attr));
+                                                   attr));
         }
     }
     work->setRequest(req);
@@ -722,7 +707,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::reduce(
 
     {
         std::unique_lock<std::mutex> globalLock(globalMutex);
-        CCL_CHECK(req = comm->reduce(tensors[0].data_ptr(),
+        CCL_CHECK(req = comm.reduce(tensors[0].data_ptr(),
                                      tensors[0].data_ptr(),
                                      (size_t)tensors[0].numel(),
                                      cclDatatypes.at(tensors[0].scalar_type()),
@@ -747,7 +732,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allgather(
     TORCH_CHECK(outputTensors.size() == 1,
         "allgather: multi-GPU collective is not supported");
 
-    TORCH_CHECK(comm->size() == outputTensors[0].size(),
+    TORCH_CHECK(comm.size() == outputTensors[0].size(),
         "allgather: number of output tensors should equal to the world size");
 
     checkSameType(inputTensors[0], outputTensors[0]);
@@ -776,14 +761,16 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allgather(
     std::shared_ptr<ccl::request> req;
 
     {
-        std::unique_lock<std::mutex> globalLock(globalMutex);
-        collAttrAg.vector_buf = flatRes.isFlat ? 0 : 1;
-        CCL_CHECK(req = comm->allgatherv(inputTensors[0].data_ptr(),
-                                         (size_t)inputTensors[0].numel(),
-                                         recvBuf,
-                                         (size_t*)recvCounts.data(),
-                                         cclDatatypes.at(inputTensors[0].scalar_type()),
-                                         &collAttrAg));
+      std::unique_lock<std::mutex> globalLock(globalMutex);
+      auto &env = ccl::environment::instance();
+      auto attr = env.create_operation_attr<ccl::allgatherv_attr>();
+      attr.set<ccl::allgatherv_attr_id::vector_buf>(flatRes.isFlat ? 0 : 1);
+      CCL_CHECK(req = comm.allgatherv(inputTensors[0].data_ptr(),
+                                       (size_t)inputTensors[0].numel(),
+                                       recvBuf,
+                                       recvCounts,
+                                       cclDatatypes.at(inputTensors[0].scalar_type()),
+                                       attr));
     }
 
     std::vector<at::Tensor> agTensors;
@@ -868,10 +855,10 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::gather(
 
     {
         std::unique_lock<std::mutex> globalLock(globalMutex);
-        CCL_CHECK(req = comm->alltoallv(inputTensors[0].data_ptr(),
-                                        sendCounts.data(),
+        CCL_CHECK(req = comm.alltoallv(inputTensors[0].data_ptr(),
+                                        sendCounts,
                                         flatOutput.data_ptr(),
-                                        recvCounts.data(),
+                                        recvCounts,
                                         cclDatatypes.at(flatOutput.scalar_type())));
     }
 
@@ -971,10 +958,10 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::scatter(
 
     {
         std::unique_lock<std::mutex> globalLock(globalMutex);
-        CCL_CHECK(req = comm->alltoallv(flatInput.data_ptr(),
-                                        sendCounts.data(),
+        CCL_CHECK(req = comm.alltoallv(flatInput.data_ptr(),
+                                        sendCounts,
                                         outputTensors[0].data_ptr(),
-                                        recvCounts.data(),
+                                        recvCounts,
                                         cclDatatypes.at(flatInput.scalar_type())));
     }
 
@@ -1022,9 +1009,9 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::alltoall_base(
 
         {
             std::unique_lock<std::mutex> globalLock(globalMutex);
-            CCL_CHECK(req = comm->alltoall(inputTensor.data_ptr(),
+            CCL_CHECK(req = comm.alltoall(inputTensor.data_ptr(),
                                            outputTensor.data_ptr(),
-                                           (size_t)outputTensor.numel() / comm->size(),
+                                           (size_t)outputTensor.numel() / comm.size(),
                                            cclDatatypes.at(outputTensor.scalar_type())));
         }
     }
@@ -1054,10 +1041,10 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::alltoall_base(
 
         {
             std::unique_lock<std::mutex> globalLock(globalMutex);
-            CCL_CHECK(req = comm->alltoallv(inputTensor.data_ptr(),
-                                            sendCounts.data(),
+            CCL_CHECK(req = comm.alltoallv(inputTensor.data_ptr(),
+                                            sendCounts,
                                             outputTensor.data_ptr(),
-                                            recvCounts.data(),
+                                            recvCounts,
                                             cclDatatypes.at(outputTensor.scalar_type())));
         }
     }
@@ -1116,10 +1103,10 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::alltoall(
 
     {
         std::unique_lock<std::mutex> globalLock(globalMutex);
-        CCL_CHECK(req = comm->alltoallv(flatInput.data_ptr(),
-                                        sendCounts.data(),
+        CCL_CHECK(req = comm.alltoallv(flatInput.data_ptr(),
+                                        sendCounts,
                                         flatOutput.data_ptr(),
-                                        recvCounts.data(),
+                                        recvCounts,
                                         cclDatatypes.at(flatOutput.scalar_type())));
     }
 
@@ -1179,16 +1166,9 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::barrier(
     RECORD_FUNCTION("pg::barrier", std::vector<c10::IValue>());
 
     std::unique_lock<std::mutex> globalLock(globalMutex);
-    CCL_CHECK(comm->barrier());
+    CCL_CHECK(comm.barrier());
 
     return std::make_shared<ProcessGroupCCL::WorkCCL>();
 }
-
-#ifndef PROCESS_GROUP_CCL_TEST
-PYBIND11_MODULE(torch_ccl, m)
-{
-    m.def("createProcessGroupCCL", &ProcessGroupCCL::createProcessGroupCCL);
-}
-#endif
 
 } // namespace c10d
