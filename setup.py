@@ -157,7 +157,7 @@ class CMakeExtension(Extension):
 
         command = [self._cmake_command] + args
         print(' '.join(command))
-        # check_call(command, cwd=self.build_dir, env=env)
+        check_call(command, cwd=self.build_dir, env=env)
 
 
     def generate(self, my_env, build_dir, install_prefix, python_lib):
