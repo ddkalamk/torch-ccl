@@ -43,6 +43,22 @@
 #include <c10d/Utils.hpp>
 #include <oneapi/ccl.hpp>
 
+#define CCL_CHECK(cmd)                                               \
+  do {                                                               \
+    try {                                                            \
+        cmd;                                                         \
+    }                                                                \
+    catch (ccl::ccl_error& e) {                                      \
+        throw std::runtime_error("CCL error in: " +                  \
+            std::string(__FILE__) + ":" + std::to_string(__LINE__) + \
+            ", with error message: " + e.what());                    \
+    }                                                                \
+    catch (...) {                                                    \
+        throw std::runtime_error("unknown error in: " +              \
+            std::string(__FILE__) + ":" + std::to_string(__LINE__)); \
+    }                                                                \
+  } while (0)
+
 namespace c10d {
 
 // WorkCCL is the state associated with a CCL operarion.
@@ -64,62 +80,47 @@ class ProcessGroupCCL : public ProcessGroup
 
 public:
 
-  class WorkCCL : public ProcessGroup::Work
-  {
+  class AsyncWorkCCL : public ProcessGroup::Work {
   public:
+    AsyncWorkCCL(const std::vector<at::Tensor>& tensors) : inputs(tensors) {};
 
-      WorkCCL() {}
-      WorkCCL(std::shared_ptr<ccl::request> req,
-              const std::vector<at::Tensor>& tensors,
-              std::string&& debugName) :
-          req(req),
-          tensors(tensors),
-          debugName(debugName)
-      {}
+    bool isCompleted() override;
+    bool isSuccess() const override;
+    bool wait() override;
+    void abort() override;
 
-      WorkCCL(std::shared_ptr<ccl::request> req,
-              std::vector<at::Tensor>&& tensors,
-              std::string&& debugName) :
-          req(req),
-          tensors(std::move(tensors)),
-          debugName(debugName)
-      {}
+    virtual void run() = 0;
 
-      WorkCCL(const std::vector<at::Tensor>& tensors,
-              std::string&& debugName) :
-          tensors(tensors),
-          debugName(debugName)
-      {}
+    ~AsyncWorkCCL();
 
-      virtual ~WorkCCL();
+    std::vector<at::Tensor>& getOutputTensors()
+    {
+      return outputs;
+    }
 
-      bool isCompleted() override;
-      bool isSuccess() const override;
-      bool wait() override;
-      void abort() override;
+    std::vector<at::Tensor>& getInputTensors()
+    {
+      return inputs;
+    }
 
-      void setRequest(std::shared_ptr<ccl::request> r)
-      {
-          TORCH_CHECK(!req, "request is already set");
-          req = r;
-      }
+    std::vector<at::Tensor> result() const override
+    {
+      TORCH_CHECK(outputs.size() == 1, "unexpected result size");
+      return outputs;
+    }
 
-      std::vector<at::Tensor>& getTensors()
-      {
-          return tensors;
-      }
+  public:
+    std::shared_ptr<ccl::request> req;
+    /*
+        keep copy of tensors to incrememt tensor reference counters
+        while CCL operation is in progress
+    */
+    std::vector<at::Tensor> inputs;
+    std::vector<at::Tensor> outputs;
 
-  protected:
-      std::shared_ptr<ccl::request> req;
+    std::string debugName;
 
-      /*
-          keep copy of tensors to incrememt tensor reference counters
-          while CCL operation is in progress
-      */
-      std::vector<at::Tensor> tensors;
-      std::string debugName;
-
-      friend class ProcessGroupCCL;
+    friend class ProcessGroupCCL;
   };
 
   explicit ProcessGroupCCL(const std::shared_ptr<Store>& store, int rank, int size, const std::chrono::milliseconds& op_time_out);
@@ -208,7 +209,7 @@ public:
       int size = -1,
       const std::chrono::milliseconds& op_time_out =
       std::chrono::milliseconds(OP_TIMEOUT_MILLIS));
-  static const int64_t OP_TIMEOUT_MILLIS = 1000;
+  static const int64_t OP_TIMEOUT_MILLIS;
  protected:
 
   static void cclInitOnce();
@@ -234,5 +235,49 @@ public:
 
   static std::unordered_map<std::string, ssize_t> processGroupCounterMap_;
 };
+
+class CCLStubs {
+
+public:
+  CCLStubs() {}
+
+  virtual bool enabled() {
+    return false;
+  }
+
+  virtual std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> allreduce(std::vector<at::Tensor>& tensors,
+                                                                       const AllreduceOptions& opts,
+                                                                       ccl::communicator& comm) {
+    fail(tensors[0].device(), "allreduce");
+  }
+
+  virtual std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> reduce(std::vector<at::Tensor>& tensors,
+                                                                 const ReduceOptions& opts,
+                                                                 ccl::communicator& comm) {
+    fail(tensors[0].device(), "reduce");
+  }
+
+  virtual std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> broadcast(std::vector<at::Tensor>& tensors,
+                                                                       const BroadcastOptions& opts,
+                                                                       ccl::communicator& comm) {
+    fail(tensors[0].device(), "broadcast");
+  }
+
+  virtual std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> allgather(std::vector<std::vector<at::Tensor>>& outputTensors,
+                                                                       std::vector<at::Tensor>& inputTensors,
+                                                                       const AllgatherOptions& opts,
+                                                                       ccl::communicator& comm) {
+    fail(inputTensors[0].device(), "allgather");
+  }
+
+  virtual ~CCLStubs() {};
+
+private:
+  void fail(c10::Device device, const std::string method) {
+    TORCH_CHECK(false, device, " backend ", method, " is not implementd.");
+  }
+};
+
+void registerCPUMethods(CCLStubs* stubs);
 
 } // namespace c10d

@@ -10,7 +10,7 @@ set(DEPENDS_LIB)
 find_package(CCL REQUIRED)
 list(APPEND DEPENDS_LIB ${CCL_LIBRARY})
 
-set(OCCL_SRCS src/init.cpp src/ProcessGroupCCL.cpp)
+set(OCCL_SRCS src/init.cpp src/ProcessGroupCCL.cpp src/cpu/CPUCCL.cpp)
 
 IF(COMPUTE_RUNTIME STREQUAL "dpcpp" OR COMPUTE_RUNTIME STREQUAL "native")
     # import sycl SYCL
@@ -76,7 +76,7 @@ if(${L0_SUPPORT} STREQUAL "YES")
 
 endif()
 
-target_include_directories(torch_ccl PRIVATE ${CCL_INCLUDE_DIRS} ${PYTHON_INCLUDE_DIRS} ${PYTORCH_INCLUDE_DIRS} ${IPEX_INCLUDE_DIRS})
+target_include_directories(torch_ccl PRIVATE ${CCL_INCLUDE_DIRS} ${PYTHON_INCLUDE_DIRS} ${PYTORCH_INCLUDE_DIRS} ${IPEX_INCLUDE_DIRS} ./src/)
 
 IF(COMPUTE_RUNTIME STREQUAL "dpcpp" OR COMPUTE_RUNTIME STREQUAL "native")
     target_include_directories(torch_ccl PRIVATE ${SYCL_INCLUDE_DIRS})
