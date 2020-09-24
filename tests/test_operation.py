@@ -64,7 +64,7 @@ class ProcessGroupOCCLTest(TestCase):
         # for every root rank
         for rt in range(self.world_size):
             tensors = []
-            tensors.append(torch.tensor([self.rank]))
+            tensors.append(torch.tensor([self.rank], device=dpcpp_device))
             with torch.autograd.profiler.profile() as prof:
                 broadcast(tensors, rt, 0)
             print(prof)

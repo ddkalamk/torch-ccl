@@ -61,14 +61,14 @@ protected:
   virtual std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> allreduce_(std::vector<at::Tensor>& tensors,
                                                                     const AllreduceOptions& opts,
                                                                     ccl::communicator& comm) {
-    fail(tensors[0].device(), "allreduce");
+    fail(tensors[0].device().type(), "allreduce");
     return nullptr;
   }
 
   virtual std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> reduce_(std::vector<at::Tensor>& tensors,
                                                                  const ReduceOptions& opts,
                                                                  ccl::communicator& comm) {
-    fail(tensors[0].device(), "reduce");
+    fail(tensors[0].device().type(), "reduce");
     return nullptr;
   }
 
@@ -76,22 +76,21 @@ protected:
                                                                     std::vector<at::Tensor>& inputTensors,
                                                                     const AllgatherOptions& opts,
                                                                     ccl::communicator& comm) {
-    fail(inputTensors[0].device(), "allgather");
+    fail(inputTensors[0].device().type(), "allgather");
     return nullptr;
   }
 
   virtual std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> broadcast_(std::vector<at::Tensor>& tensors,
                                                                     const BroadcastOptions& opts,
                                                                     ccl::communicator& comm) {
-    fail(tensors[0].device(), "broadcast");
+    fail(tensors[0].device().type(), "broadcast");
     return nullptr;
   }
 
-
 private:
   static DispatchStub* stubs_[static_cast<std::underlying_type<c10::DeviceType>::type>(c10::DeviceType::COMPILE_TIME_MAX_DEVICE_TYPES)];
-  static void fail(c10::Device device, const std::string method) {
-    TORCH_CHECK(false, device, " backend ", method, " is not implementd.");
+  static void fail(c10::DeviceType dev_type, const std::string method) {
+    TORCH_CHECK(false, "torch_ccl: ", method, " isn't implementd on backend [", dev_type, "].");
   }
 };
 
