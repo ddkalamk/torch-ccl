@@ -65,7 +65,9 @@ class ProcessGroupOCCLTest(TestCase):
         for rt in range(self.world_size):
             tensors = []
             tensors.append(torch.tensor([self.rank]))
-            broadcast(tensors, rt, 0)
+            with torch.autograd.profiler.profile() as prof:
+                broadcast(tensors, rt, 0)
+            print(prof)
             self.assertEqual(tensors[0], torch.tensor([rt]))
 
 

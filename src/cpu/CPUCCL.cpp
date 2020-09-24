@@ -3,9 +3,12 @@
 //
 #include <ATen/record_function.h>
 #include <ProcessGroupCCL.hpp>
+#include <dispatch_stub.h>
 
 namespace c10d
 {
+
+using torch_ccl::DispatchStub;
 
 namespace {
 
@@ -205,7 +208,7 @@ bool computeLengthsAndCheckAndGetFlat(
 
 } //namespace anonymous
 
-class VanillaCPU final: public CCLStubs {
+class VanillaCPU final: public DispatchStub {
 
 public:
   VanillaCPU() {}
@@ -214,34 +217,33 @@ public:
     return true;
   }
 
-  std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> allreduce(std::vector<at::Tensor>& tensors,
-                                                           const AllreduceOptions& opts,
-                                                           ccl::communicator& comm) override;
-
-
-  std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> reduce(std::vector<at::Tensor>& tensors,
-                                                        const ReduceOptions& opts,
-                                                        ccl::communicator& comm) override;
-
-  std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> broadcast(std::vector<at::Tensor>& tensors,
-                                                           const BroadcastOptions& opts,
-                                                           ccl::communicator& comm) override;
-
-  std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> allgather(std::vector<std::vector<at::Tensor>>& outputTensors,
-                                                           std::vector<at::Tensor>& inputTensors,
-                                                           const AllgatherOptions& opts,
-                                                           ccl::communicator& comm) override;
-
   ~VanillaCPU() {}
 
-private:
+protected:
 
+  std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> allreduce_(std::vector<at::Tensor>& tensors,
+                                                            const AllreduceOptions& opts,
+                                                            ccl::communicator& comm) override;
+
+
+  std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> reduce_(std::vector<at::Tensor>& tensors,
+                                                         const ReduceOptions& opts,
+                                                         ccl::communicator& comm) override;
+
+  std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> broadcast_(std::vector<at::Tensor>& tensors,
+                                                            const BroadcastOptions& opts,
+                                                            ccl::communicator& comm) override;
+
+  std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> allgather_(std::vector<std::vector<at::Tensor>>& outputTensors,
+                                                            std::vector<at::Tensor>& inputTensors,
+                                                            const AllgatherOptions& opts,
+                                                            ccl::communicator& comm) override;
 };
 
 struct RegisterCPUPMethods {
   RegisterCPUPMethods() {
     static VanillaCPU methods;
-
+    printf("register cpu backend\n");
     sparseCoalesceMode = ccl::sparse_coalesce_mode::regular;
     const char* sparseCoalesceModeEnv = getenv("CCL_SPARSE_COALESCE_MODE");
     if (sparseCoalesceModeEnv)
@@ -259,7 +261,7 @@ struct RegisterCPUPMethods {
     printf("sparse options: coalesce mode %d, result mode %d\n",
            sparseCoalesceMode, (int)sparseResultMode);
 
-    registerCPUMethods(&methods);
+    DispatchStub::register_ccl_stub(c10::DeviceType::CPU, &methods);
   }
 };
 
@@ -437,7 +439,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> make_work_ccl(const std::vector<a
   return std::make_shared<CPUWorkCCL<RunF>>(inputs, f);
 }
 
-std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allreduce(std::vector<at::Tensor>& tensors,
+std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allreduce_(std::vector<at::Tensor>& tensors,
                                                                      const AllreduceOptions& opts,
                                                                      ccl::communicator& comm) {
   const auto& layout = tensors[0].layout();
@@ -450,7 +452,6 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allreduce(std::vector
   if (layout == c10::kStrided) {
     work = make_work_ccl(tensors,
       [&](ProcessGroupCCL::AsyncWorkCCL* work){
-        const auto& layout = tensors[0].layout();
         CCL_CHECK(work->req = comm.allreduce(tensors[0].data_ptr(),
                                    tensors[0].data_ptr(),
                                    (size_t)tensors[0].numel(),
@@ -492,7 +493,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allreduce(std::vector
   return work;
 }
 
-std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::reduce(std::vector<at::Tensor>& tensors,
+std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::reduce_(std::vector<at::Tensor>& tensors,
                                                                   const ReduceOptions& opts,
                                                                   ccl::communicator& comm) {
   RECORD_FUNCTION("pg::reduce", std::vector<c10::IValue>({tensors[0]}));
@@ -513,7 +514,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::reduce(std::vector<at
   return work;
 }
 
-std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::broadcast(std::vector<at::Tensor>& tensors,
+std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::broadcast_(std::vector<at::Tensor>& tensors,
                                                                      const BroadcastOptions &opts,
                                                                      ccl::communicator& comm) {
   RECORD_FUNCTION("pg::bcast", std::vector<c10::IValue>({tensors[0]}));
@@ -533,7 +534,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::broadcast(std::vector
 }
 
 
-std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allgather(std::vector<std::vector<at::Tensor>>& outputTensors,
+std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allgather_(std::vector<std::vector<at::Tensor>>& outputTensors,
                                                                      std::vector<at::Tensor>& inputTensors,
                                                                      const AllgatherOptions& opts,
                                                                      ccl::communicator& comm) {
@@ -602,8 +603,6 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allgather(std::vector
   return work;
 }
 
-
-
-static RegisterCPUPMethods cpu_register;
+RegisterCPUPMethods cpu_register;
 
 } // namespace c10d

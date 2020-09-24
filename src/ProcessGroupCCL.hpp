@@ -236,48 +236,5 @@ public:
   static std::unordered_map<std::string, ssize_t> processGroupCounterMap_;
 };
 
-class CCLStubs {
-
-public:
-  CCLStubs() {}
-
-  virtual bool enabled() {
-    return false;
-  }
-
-  virtual std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> allreduce(std::vector<at::Tensor>& tensors,
-                                                                       const AllreduceOptions& opts,
-                                                                       ccl::communicator& comm) {
-    fail(tensors[0].device(), "allreduce");
-  }
-
-  virtual std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> reduce(std::vector<at::Tensor>& tensors,
-                                                                 const ReduceOptions& opts,
-                                                                 ccl::communicator& comm) {
-    fail(tensors[0].device(), "reduce");
-  }
-
-  virtual std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> broadcast(std::vector<at::Tensor>& tensors,
-                                                                       const BroadcastOptions& opts,
-                                                                       ccl::communicator& comm) {
-    fail(tensors[0].device(), "broadcast");
-  }
-
-  virtual std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> allgather(std::vector<std::vector<at::Tensor>>& outputTensors,
-                                                                       std::vector<at::Tensor>& inputTensors,
-                                                                       const AllgatherOptions& opts,
-                                                                       ccl::communicator& comm) {
-    fail(inputTensors[0].device(), "allgather");
-  }
-
-  virtual ~CCLStubs() {};
-
-private:
-  void fail(c10::Device device, const std::string method) {
-    TORCH_CHECK(false, device, " backend ", method, " is not implementd.");
-  }
-};
-
-void registerCPUMethods(CCLStubs* stubs);
 
 } // namespace c10d

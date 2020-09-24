@@ -30,12 +30,14 @@
  */
 
 #include "ProcessGroupCCL.hpp"
+#include "dispatch_stub.h"
 
 #include <map>
 #include <core/Stream.h>
 
 namespace c10d
 {
+using torch_ccl::DispatchStub;
 
 namespace {
 
@@ -48,17 +50,6 @@ void checkRank(int rank, int size)
 }
 
 } // namespace
-
-static CCLStubs default_cpu_stubs;
-static DPCPPStubs default_dpcpp_stubs;
-constexpr CCLStubs* default_cpu_stubs_addr = &default_cpu_stubs;
-constexpr DPCPPStubs* default_dpcpp_stubs_addr = &default_dpcpp_stubs;
-static CCLStubs* cpu_stubs = default_cpu_stubs_addr;
-static DPCPPStubs* dpcpp_stubs = default_dpcpp_stubs_addr;
-
-void registerCPUMethods(CCLStubs* stubs) {
-  cpu_stubs = stubs;
-}
 
 const int64_t ProcessGroupCCL::OP_TIMEOUT_MILLIS = 10 * 1000;
 
@@ -208,7 +199,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::broadcast(
     const BroadcastOptions& opts)
 {
   checkRank(opts.rootRank, getSize());
-  auto work = cpu_stubs->broadcast(tensors, opts, comm);
+  auto work = DispatchStub::broadcast(tensors, opts, comm);
 
   // sync run
   work->run();
@@ -219,7 +210,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allreduce(
   std::vector<at::Tensor>& tensors,
   const AllreduceOptions& opts)
 {
-  auto work = cpu_stubs->allreduce(tensors, opts, comm);
+  auto work = DispatchStub::allreduce(tensors, opts, comm);
 
   // sync run
   work->run();
@@ -239,7 +230,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::reduce(
 {
   checkRank(opts.rootRank, getSize());
 
-  auto work = cpu_stubs->reduce(tensors, opts, comm);
+  auto work = DispatchStub::reduce(tensors, opts, comm);
 
   // sync run
   work->run();
