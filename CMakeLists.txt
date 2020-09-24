@@ -10,7 +10,7 @@ set(DEPENDS_LIB)
 find_package(CCL REQUIRED)
 list(APPEND DEPENDS_LIB ${CCL_LIBRARY})
 
-set(OCCL_SRCS src/init.cpp src/ProcessGroupCCL.cpp src/cpu/CPUCCL.cpp src/gpu/DPCPPCCL.cpp src/dispatch_stub.cpp)
+set(OCCL_SRCS src/init.cpp src/ProcessGroupCCL.cpp src/cpu/cpu_ccl.cpp src/gpu/dpcpp_ccl.cpp src/dispatch_stub.cpp)
 
 IF(COMPUTE_RUNTIME STREQUAL "dpcpp" OR COMPUTE_RUNTIME STREQUAL "native")
     # import sycl SYCL
