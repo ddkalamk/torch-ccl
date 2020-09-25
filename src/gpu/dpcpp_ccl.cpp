@@ -120,7 +120,7 @@ std::string get_key_from_devs(const std::vector<at::Device>& devices) {
 std::shared_ptr<CCLCommsCollector> get_ccl_comms(
   const std::string& devicesKey,
   const std::vector<at::Device>& devices,
-  ProcessGroupCCL* pg_ccl) {
+  ProcessGroupCCL& pg_ccl) {
   // Sanity check
   if (devicesKey.empty()) {
     throw std::runtime_error(
@@ -134,26 +134,26 @@ std::shared_ptr<CCLCommsCollector> get_ccl_comms(
 //    used_gpu_device_idxs.insert(device.index());
 //  }
 
-  if (pg_ccl->gpu_comms.find(devicesKey) != pg_ccl->gpu_comms.end()) {
+  if (pg_ccl.gpu_comms.find(devicesKey) != pg_ccl.gpu_comms.end()) {
     // Reuse the cached communicator if there is one.
-    return pg_ccl->gpu_comms[devicesKey];
+    return pg_ccl.gpu_comms[devicesKey];
   }
 
   ccl::vector_class<ccl::pair_class<ccl::rank_t, cl::sycl::device>> devs_rank;
 
   for (size_t i = 0; i < devices.size(); ++i) {
     // GPU world size and GPU rank
-    int rank = pg_ccl->getRank() * devices.size() + i;
+    int rank = pg_ccl.getRank() * devices.size() + i;
     auto sycl_dev = at::dpcpp::dpcppGetRawDevice(devices[i].index());
     devs_rank.emplace_back( rank, sycl_dev );
   }
 
   auto ctx = at::dpcpp::getGlobalContext();
   auto communcators = ccl::environment::instance().create_device_communicators(
-    pg_ccl->getSize(),
+    pg_ccl.getSize(),
     devs_rank,
     ctx,
-    pg_ccl->kvs);
+    pg_ccl.kvs);
 
 
   auto &comm = *communcators.begin();
@@ -171,9 +171,9 @@ std::shared_ptr<CCLCommsCollector> get_ccl_comms(
   auto comms_collector = std::make_shared<class CCLCommsCollector>(communcators, ccl_streams);
 
   // Move the CCL resource to cache
-  pg_ccl->gpu_comms.emplace(devicesKey, std::move(comms_collector));
+  pg_ccl.gpu_comms.emplace(devicesKey, std::move(comms_collector));
 
-  return pg_ccl->gpu_comms[devicesKey];
+  return pg_ccl.gpu_comms[devicesKey];
 }
 
 template <class RunF>
@@ -208,7 +208,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> collective(
   fn fun,
   pre_process pre,
   post_process post,
-  ProcessGroupCCL* pg_ccl) {
+  ProcessGroupCCL& pg_ccl) {
   const auto devices = get_device_list(inputs);
   const auto key = get_key_from_devs(devices);
   auto comms_collector = get_ccl_comms(key, devices, pg_ccl);
@@ -237,7 +237,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> collective(
   std::vector<input_t>& inputs,
   std::vector<output_t>& outputs,
   fn fun,
-  ProcessGroupCCL* pg_ccl) {
+  ProcessGroupCCL& pg_ccl) {
   return collective(
     inputs,
     outputs,
@@ -264,21 +264,21 @@ protected:
 
   std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> allreduce_(std::vector<at::Tensor>& tensors,
                                                             const AllreduceOptions& opts,
-                                                            ProcessGroupCCL* pg_ccl) override;
+                                                            ProcessGroupCCL& pg_ccl) override;
 
 
   std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> reduce_(std::vector<at::Tensor>& tensors,
                                                          const ReduceOptions& opts,
-                                                         ProcessGroupCCL* pg_ccl) override;
+                                                         ProcessGroupCCL& pg_ccl) override;
 
   std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> broadcast_(std::vector<at::Tensor>& tensors,
                                                             const BroadcastOptions& opts,
-                                                            ProcessGroupCCL* pg_ccl) override;
+                                                            ProcessGroupCCL& pg_ccl) override;
 
   std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> allgather_(std::vector<std::vector<at::Tensor>>& outputTensors,
                                                             std::vector<at::Tensor>& inputTensors,
                                                             const AllgatherOptions& opts,
-                                                            ProcessGroupCCL* pg_ccl) override;
+                                                            ProcessGroupCCL& pg_ccl) override;
 
 };
 
@@ -293,19 +293,19 @@ struct RegisterDPCPPPMethods {
 
 std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> DPCPPCCLStubs::allreduce_(std::vector<at::Tensor>& tensors,
                                                                          const AllreduceOptions& opts,
-                                                                         ProcessGroupCCL* pg_ccl) {
+                                                                         ProcessGroupCCL& pg_ccl) {
   TORCH_CHECK(false, "not implemented");
 }
 
 std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> DPCPPCCLStubs::reduce_(std::vector<at::Tensor>& tensors,
                                                                       const ReduceOptions& opts,
-                                                                      ProcessGroupCCL* pg_ccl) {
+                                                                      ProcessGroupCCL& pg_ccl) {
   TORCH_CHECK(false, "not implemented");
 }
 
 std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> DPCPPCCLStubs::broadcast_(std::vector<at::Tensor>& tensors,
                                                                          const BroadcastOptions &opts,
-                                                                         ProcessGroupCCL* pg_ccl) {
+                                                                         ProcessGroupCCL& pg_ccl) {
   auto dev_type = check_tensors_properties(tensors);
 
   return collective(tensors, tensors,
@@ -337,7 +337,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> DPCPPCCLStubs::broadcast_(std::ve
 std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> DPCPPCCLStubs::allgather_(std::vector<std::vector<at::Tensor>>& outputTensors,
                                                                          std::vector<at::Tensor>& inputTensors,
                                                                          const AllgatherOptions& opts,
-                                                                         ProcessGroupCCL* pg_ccl) {
+                                                                         ProcessGroupCCL& pg_ccl) {
   TORCH_CHECK(false, "not implemented");
 }
 

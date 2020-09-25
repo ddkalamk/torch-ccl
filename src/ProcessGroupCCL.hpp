@@ -108,7 +108,6 @@ public:
 
   class AsyncWorkCCL : public ProcessGroup::Work {
   public:
-    AsyncWorkCCL(const std::vector<at::Tensor>& tensors) : inputs(tensors) {};
     AsyncWorkCCL(const std::vector<at::Tensor>& inputs,
                  const std::vector<at::Tensor>& outputs) : inputs(inputs), outputs(outputs) {};
 
@@ -131,16 +130,16 @@ public:
       return inputs;
     }
 
-    std::vector<at::Tensor> result() const override
-    {
-      TORCH_CHECK(outputs.size() == 1, "unexpected result size");
-      return outputs;
-    }
+//    std::vector<at::Tensor> result() const override
+//    {
+//      TORCH_CHECK(outputs.size() == 1, "unexpected result size");
+//      return outputs;
+//    }
 
   public:
     ccl::communicator::coll_request_t req;
     /*
-        keep copy of tensors to incrememt tensor reference counters
+        keep copy of tensors to increment tensor reference counters
         while CCL operation is in progress
     */
     std::vector<at::Tensor> inputs;

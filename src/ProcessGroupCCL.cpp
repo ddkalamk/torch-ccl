@@ -203,7 +203,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::broadcast(
     const BroadcastOptions& opts)
 {
   checkRank(opts.rootRank, getSize());
-  auto work = DispatchStub::broadcast(tensors, opts, this);
+  auto work = DispatchStub::broadcast(tensors, opts, *this);
 
   // sync run
   work->run();
@@ -214,7 +214,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allreduce(
   std::vector<at::Tensor>& tensors,
   const AllreduceOptions& opts)
 {
-  auto work = DispatchStub::allreduce(tensors, opts, this);
+  auto work = DispatchStub::allreduce(tensors, opts, *this);
 
   // sync run
   work->run();
@@ -234,7 +234,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::reduce(
 {
   checkRank(opts.rootRank, getSize());
 
-  auto work = DispatchStub::reduce(tensors, opts, this);
+  auto work = DispatchStub::reduce(tensors, opts, *this);
 
   // sync run
   work->run();

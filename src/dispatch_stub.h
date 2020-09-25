@@ -26,21 +26,21 @@ public:
 
   static std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> allreduce(std::vector<at::Tensor>& tensors,
                                                                   const AllreduceOptions& opts,
-                                                                  ProcessGroupCCL* pg_ccl) {
+                                                                  ProcessGroupCCL& pg_ccl) {
     c10::DeviceType dev_type = tensors[0].device().type();
     return stubs_[to_int(dev_type)]->allreduce_(tensors, opts, pg_ccl);
   }
 
   static std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> reduce(std::vector<at::Tensor>& tensors,
                                                                const ReduceOptions& opts,
-                                                               ProcessGroupCCL* pg_ccl) {
+                                                               ProcessGroupCCL& pg_ccl) {
     c10::DeviceType dev_type = tensors[0].device().type();
     return stubs_[to_int(dev_type)]->reduce_(tensors, opts, pg_ccl);
   }
 
   static std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> broadcast(std::vector<at::Tensor>& tensors,
                                                                   const BroadcastOptions& opts,
-                                                                  ProcessGroupCCL* pg_ccl) {
+                                                                  ProcessGroupCCL& pg_ccl) {
     c10::DeviceType dev_type = tensors[0].device().type();
     return stubs_[to_int(dev_type)]->broadcast_(tensors, opts, pg_ccl);
   }
@@ -48,7 +48,7 @@ public:
   static std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> allgather(std::vector<std::vector<at::Tensor>>& outputTensors,
                                                                   std::vector<at::Tensor>& inputTensors,
                                                                   const AllgatherOptions& opts,
-                                                                  ProcessGroupCCL* pg_ccl) {
+                                                                  ProcessGroupCCL& pg_ccl) {
     c10::DeviceType dev_type = inputTensors[0].device().type();
     return stubs_[to_int(dev_type)]->allgather_(outputTensors, inputTensors, opts, pg_ccl);
   }
@@ -60,14 +60,14 @@ public:
 protected:
   virtual std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> allreduce_(std::vector<at::Tensor>& tensors,
                                                                     const AllreduceOptions& opts,
-                                                                    ProcessGroupCCL* pg_ccl) {
+                                                                    ProcessGroupCCL& pg_ccl) {
     fail(tensors[0].device().type(), "allreduce");
     return nullptr;
   }
 
   virtual std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> reduce_(std::vector<at::Tensor>& tensors,
                                                                  const ReduceOptions& opts,
-                                                                 ProcessGroupCCL* pg_ccl) {
+                                                                 ProcessGroupCCL& pg_ccl) {
     fail(tensors[0].device().type(), "reduce");
     return nullptr;
   }
@@ -75,14 +75,14 @@ protected:
   virtual std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> allgather_(std::vector<std::vector<at::Tensor>>& outputTensors,
                                                                     std::vector<at::Tensor>& inputTensors,
                                                                     const AllgatherOptions& opts,
-                                                                    ProcessGroupCCL* pg_ccl) {
+                                                                    ProcessGroupCCL& pg_ccl) {
     fail(inputTensors[0].device().type(), "allgather");
     return nullptr;
   }
 
   virtual std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> broadcast_(std::vector<at::Tensor>& tensors,
                                                                     const BroadcastOptions& opts,
-                                                                    ProcessGroupCCL* pg_ccl) {
+                                                                    ProcessGroupCCL& pg_ccl) {
     fail(tensors[0].device().type(), "broadcast");
     return nullptr;
   }
