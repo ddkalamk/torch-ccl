@@ -53,9 +53,10 @@ void checkRank(int rank, int size)
 
 const int64_t ProcessGroupCCL::OP_TIMEOUT_MILLIS = 10 * 1000;
 
+ccl::communicator::coll_request_t null_req;
 ProcessGroupCCL::AsyncWorkCCL::~AsyncWorkCCL()
 {
-    if (req)
+    if (req != null_req)
     {
         std::cerr << "attempted destruction of WorkCCL before work has completed, "
                   << "terminating the program."
@@ -66,7 +67,7 @@ ProcessGroupCCL::AsyncWorkCCL::~AsyncWorkCCL()
 
 bool ProcessGroupCCL::AsyncWorkCCL::isCompleted()
 {
-    if (!req)
+    if (req == null_req)
     {
         return true;
     }
@@ -74,11 +75,12 @@ bool ProcessGroupCCL::AsyncWorkCCL::isCompleted()
     bool flag = false;
 
     std::unique_lock<std::mutex> globalLock(globalMutex);
-    CCL_CHECK(flag = req->test());
+    CCL_CHECK(flag = req.test());
 
     if (flag)
     {
-        req.reset();
+//    req.reset();
+        req.operator=(ccl::communicator::coll_request_t());
         inputs.clear();
     }
 
@@ -87,7 +89,7 @@ bool ProcessGroupCCL::AsyncWorkCCL::isCompleted()
 
 bool ProcessGroupCCL::AsyncWorkCCL::isSuccess() const
 {
-    if (req)
+    if (req != null_req)
     {
         throw std::runtime_error(
             "invalid call to WorkCCL::isSuccess before work has completed");
@@ -97,7 +99,7 @@ bool ProcessGroupCCL::AsyncWorkCCL::isSuccess() const
 
 bool ProcessGroupCCL::AsyncWorkCCL::wait()
 {
-    if (!req)
+    if (req == null_req)
     {
         return true;
     }
@@ -105,8 +107,9 @@ bool ProcessGroupCCL::AsyncWorkCCL::wait()
     RECORD_FUNCTION(std::string("pg::wait::") + debugName, std::vector<c10::IValue>());
 
     std::unique_lock<std::mutex> globalLock(globalMutex);
-    CCL_CHECK(req->wait());
-    req.reset();
+    CCL_CHECK(req.wait());
+//    req.reset();
+    req.operator=(ccl::communicator::coll_request_t());
     inputs.clear();
 
     // Always return true, because abort API is not implemented.
@@ -159,8 +162,7 @@ std::shared_ptr<ProcessGroup> ProcessGroupCCL::createProcessGroupCCL(
 
 ProcessGroupCCL::ProcessGroupCCL(const std::shared_ptr<Store>& store, int rank, int size, const std::chrono::milliseconds& op_time_out)
     : ProcessGroup(rank, size), store_(store), op_timeout_millis(op_time_out),
-      comm([=](){
-
+      kvs([=](){
         ccl::shared_ptr_class<ccl::kvs> kvs;
 
         std::string storeKey = "ccl_kvs";
@@ -184,7 +186,9 @@ ProcessGroupCCL::ProcessGroupCCL(const std::shared_ptr<Store>& store, int rank, 
                       main_addr.begin());
           kvs = ccl::environment::instance().create_kvs(main_addr);
         }
-
+        return kvs;
+      }()),
+      comm([=](){
         return ccl::environment::instance().create_communicator(size, rank, kvs);
       }())
 {
@@ -199,7 +203,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::broadcast(
     const BroadcastOptions& opts)
 {
   checkRank(opts.rootRank, getSize());
-  auto work = DispatchStub::broadcast(tensors, opts, comm);
+  auto work = DispatchStub::broadcast(tensors, opts, this);
 
   // sync run
   work->run();
@@ -210,7 +214,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allreduce(
   std::vector<at::Tensor>& tensors,
   const AllreduceOptions& opts)
 {
-  auto work = DispatchStub::allreduce(tensors, opts, comm);
+  auto work = DispatchStub::allreduce(tensors, opts, this);
 
   // sync run
   work->run();
@@ -230,7 +234,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::reduce(
 {
   checkRank(opts.rootRank, getSize());
 
-  auto work = DispatchStub::reduce(tensors, opts, comm);
+  auto work = DispatchStub::reduce(tensors, opts, this);
 
   // sync run
   work->run();

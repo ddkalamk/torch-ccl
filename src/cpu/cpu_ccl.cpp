@@ -223,21 +223,21 @@ protected:
 
   std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> allreduce_(std::vector<at::Tensor>& tensors,
                                                             const AllreduceOptions& opts,
-                                                            ccl::communicator& comm) override;
+                                                            ProcessGroupCCL* pg_ccl) override;
 
 
   std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> reduce_(std::vector<at::Tensor>& tensors,
                                                          const ReduceOptions& opts,
-                                                         ccl::communicator& comm) override;
+                                                         ProcessGroupCCL* pg_ccl) override;
 
   std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> broadcast_(std::vector<at::Tensor>& tensors,
                                                             const BroadcastOptions& opts,
-                                                            ccl::communicator& comm) override;
+                                                            ProcessGroupCCL* pg_ccl) override;
 
   std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> allgather_(std::vector<std::vector<at::Tensor>>& outputTensors,
                                                             std::vector<at::Tensor>& inputTensors,
                                                             const AllgatherOptions& opts,
-                                                            ccl::communicator& comm) override;
+                                                            ProcessGroupCCL* pg_ccl) override;
 };
 
 struct RegisterCPUPMethods {
@@ -440,8 +440,8 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> make_work_ccl(const std::vector<a
 }
 
 std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allreduce_(std::vector<at::Tensor>& tensors,
-                                                                     const AllreduceOptions& opts,
-                                                                     ccl::communicator& comm) {
+                                                                      const AllreduceOptions& opts,
+                                                                      ProcessGroupCCL* pg_ccl) {
   const auto& layout = tensors[0].layout();
   std::string funcName = (layout == c10::kStrided) ? "pg::allreduce" : "pg::sparse_allreduce";
   RECORD_FUNCTION(funcName, std::vector<c10::IValue>({tensors[0]}));
@@ -451,8 +451,8 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allreduce_(std::vecto
   std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> work;
   if (layout == c10::kStrided) {
     work = make_work_ccl(tensors,
-      [&](ProcessGroupCCL::AsyncWorkCCL* work){
-        CCL_CHECK(work->req = comm.allreduce(tensors[0].data_ptr(),
+      [=](ProcessGroupCCL::AsyncWorkCCL* work){
+        CCL_CHECK(work->req = pg_ccl->comm.allreduce(tensors[0].data_ptr(),
                                    tensors[0].data_ptr(),
                                    (size_t)tensors[0].numel(),
                                    cclDatatypes.at(tensors[0].scalar_type()),
@@ -461,7 +461,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allreduce_(std::vecto
 
   } else if (layout == c10::kSparse) {
     work = make_work_ccl(tensors,
-      [&](ProcessGroupCCL::AsyncWorkCCL* work){
+      [=](ProcessGroupCCL::AsyncWorkCCL* work){
         at::Tensor input = tensors[0];
         TORCH_CHECK(input.sparse_dim() == 1, "allreduce: only single sparse_dim is supported");
 
@@ -478,7 +478,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allreduce_(std::vecto
         attr.set<ccl::sparse_allreduce_attr_id::fn_ctx>(static_cast<const void*>(work));
         attr.set<ccl::sparse_allreduce_attr_id::coalesce_mode>(sparseCoalesceMode);
 
-        CCL_CHECK(work->req = comm.sparse_allreduce(indices.data_ptr(),
+        CCL_CHECK(work->req = pg_ccl->comm.sparse_allreduce(indices.data_ptr(),
                                               (size_t)indices.numel(),
                                               values.data_ptr(),
                                               (size_t)values.numel(),
@@ -494,16 +494,16 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allreduce_(std::vecto
 }
 
 std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::reduce_(std::vector<at::Tensor>& tensors,
-                                                                  const ReduceOptions& opts,
-                                                                  ccl::communicator& comm) {
+                                                                   const ReduceOptions& opts,
+                                                                   ProcessGroupCCL* pg_ccl) {
   RECORD_FUNCTION("pg::reduce", std::vector<c10::IValue>({tensors[0]}));
 
   checkSingleTensor(tensors);
 
   std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> work;
   work = make_work_ccl(tensors,
-                       [&](ProcessGroupCCL::AsyncWorkCCL* work) {
-                          CCL_CHECK(work->req = comm.reduce(tensors[0].data_ptr(),
+                       [=](ProcessGroupCCL::AsyncWorkCCL* work) {
+                          CCL_CHECK(work->req = pg_ccl->comm.reduce(tensors[0].data_ptr(),
                                                       tensors[0].data_ptr(),
                                                       (size_t)tensors[0].numel(),
                                                       cclDatatypes.at(tensors[0].scalar_type()),
@@ -515,16 +515,16 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::reduce_(std::vector<a
 }
 
 std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::broadcast_(std::vector<at::Tensor>& tensors,
-                                                                     const BroadcastOptions &opts,
-                                                                     ccl::communicator& comm) {
+                                                                      const BroadcastOptions &opts,
+                                                                      ProcessGroupCCL* pg_ccl) {
   RECORD_FUNCTION("pg::bcast", std::vector<c10::IValue>({tensors[0]}));
 
   checkSingleTensor(tensors);
 
   std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> work;
   work = make_work_ccl(tensors,
-                       [&](ProcessGroupCCL::AsyncWorkCCL* work) {
-                          CCL_CHECK(work->req = comm.broadcast(tensors[0].data_ptr(),
+                       [=](ProcessGroupCCL::AsyncWorkCCL* work) {
+                          CCL_CHECK(work->req = pg_ccl->comm.broadcast(tensors[0].data_ptr(),
                                                          (size_t)tensors[0].numel(),
                                                          cclDatatypes.at(tensors[0].scalar_type()),
                                                          (size_t)opts.rootRank));
@@ -535,16 +535,16 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::broadcast_(std::vecto
 
 
 std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allgather_(std::vector<std::vector<at::Tensor>>& outputTensors,
-                                                                     std::vector<at::Tensor>& inputTensors,
-                                                                     const AllgatherOptions& opts,
-                                                                     ccl::communicator& comm) {
+                                                                      std::vector<at::Tensor>& inputTensors,
+                                                                      const AllgatherOptions& opts,
+                                                                      ProcessGroupCCL* pg_ccl) {
   RECORD_FUNCTION("pg::allgather", std::vector<c10::IValue>({inputTensors[0]}));
 
   checkSingleTensor(inputTensors);
 
   std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> work;
   work = make_work_ccl(inputTensors,
-                       [&](ProcessGroupCCL::AsyncWorkCCL* work) {
+                       [=](ProcessGroupCCL::AsyncWorkCCL* work) {
                           work->debugName = std::string("allgather::sz:") + std::to_string(inputTensors[0].numel());
                           RECORD_FUNCTION("pg::allgather", std::vector<c10::IValue>({inputTensors[0]}));
 
@@ -553,18 +553,18 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allgather_(std::vecto
                           TORCH_CHECK(outputTensors.size() == 1,
                                       "allgather: multi-GPU collective is not supported");
 
-                          TORCH_CHECK(comm.size() == outputTensors[0].size(),
+                          TORCH_CHECK(pg_ccl->getSize() == outputTensors[0].size(),
                                       "allgather: number of output tensors should equal to the world size");
 
                           checkSameType(inputTensors[0], outputTensors[0]);
 
                           void* recvBuf = nullptr;
                           std::vector<void*> recvBufs;
-                          std::vector<size_t> recvCounts(comm.size(), 0);
+                          std::vector<size_t> recvCounts(pg_ccl->getSize(), 0);
 
                           auto flatRes = computeLengthsAndCheckFlat(outputTensors[0], recvCounts);
 
-                          TORCH_CHECK((size_t)inputTensors[0].numel() == recvCounts[comm.rank()],
+                          TORCH_CHECK((size_t)inputTensors[0].numel() == recvCounts[pg_ccl->getRank()],
                                       "allgather: send and recv count doesn't match");
 
                           if (flatRes.isFlat)
@@ -583,7 +583,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allgather_(std::vecto
                             auto &env = ccl::environment::instance();
                             auto attr = env.create_operation_attr<ccl::allgatherv_attr>();
                             attr.set<ccl::allgatherv_attr_id::vector_buf>(flatRes.isFlat ? 0 : 1);
-                            CCL_CHECK(work->req = comm.allgatherv(inputTensors[0].data_ptr(),
+                            CCL_CHECK(work->req = pg_ccl->comm.allgatherv(inputTensors[0].data_ptr(),
                                                             (size_t)inputTensors[0].numel(),
                                                             recvBuf,
                                                             recvCounts,
