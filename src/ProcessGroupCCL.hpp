@@ -42,6 +42,7 @@
 #include <c10d/Types.hpp>
 #include <c10d/Utils.hpp>
 #include <oneapi/ccl.hpp>
+#include "ccl_comm_collector.h"
 
 #define CCL_CHECK(cmd)                                               \
   do {                                                               \
@@ -70,37 +71,6 @@ namespace c10d {
 //
 // All collective functions provided by this class are scheduled
 // for asynchronous execution by CCL.
-
-class CCLCommsCollector {
-public:
-  explicit CCLCommsCollector(ccl::vector_class<ccl::device_communicator>& comms, std::vector<ccl::stream>& gpu_streams) :
-    gpu_comms(std::move(comms)), gpu_streams(std::move(gpu_streams))
-  {}
-
-  ~CCLCommsCollector() noexcept(false) {
-  }
-
-  CCLCommsCollector() = delete;
-
-  // Must not be copyable
-  CCLCommsCollector(const CCLCommsCollector&) = delete;
-  CCLCommsCollector& operator=(const CCLCommsCollector&) = delete;
-
-  // Move constructable
-  CCLCommsCollector(CCLCommsCollector&& other) : gpu_comms(std::move(other.gpu_comms)), gpu_streams(other.gpu_streams){}
-  // Move assignable
-  CCLCommsCollector& operator=(CCLCommsCollector&& other) {
-    std::swap(gpu_comms, other.gpu_comms);
-    std::swap(gpu_streams, other.gpu_streams);
-    return *this;
-  }
-
-public:
-  ccl::vector_class<ccl::device_communicator> gpu_comms;
-  // The steams used by CCL kernels
-  std::vector<ccl::stream> gpu_streams;
-};
-
 class ProcessGroupCCL : public ProcessGroup
 {
 
@@ -246,8 +216,8 @@ public:
   std::shared_ptr<Store> store_;
   std::chrono::milliseconds op_timeout_millis;
 
-  // The kvs is unique ID among the processes.
-  ccl::shared_ptr_class<ccl::kvs> kvs;
+  // Maintain all the communicators.
+  torch_ccl::CCLCommsCollector ccl_comms;
 
   // ID of this process group
   std::string processGroupID_;
@@ -255,30 +225,6 @@ public:
   // Group Prefix and ID of this process group
   std::string groupPgID_;
 
-  // Maintain all the communicators in process group.
-  ccl::communicator comm;
-
-  // The CCL communicator that the process group has cached.
-  // The key is a list of GPU devices that an operation is operating on
-  // The GPU devices are stored in a device sequence and the cache CCL
-  // communicator is associated with this GPU device sequence
-  //
-  // e.g. If the process group op only uses device 0, then the value of
-  // the used device string stored (value of the hashmap) would be "0".
-  //
-  //      If the process group op uses device 0 - 7 and the each tensor of the
-  //      input tensor list is on device, 0, 1, 2, 3, 4, 5, 6, 7 separately,
-  //      then the value of the used device string (key) stored would be
-  //      "0,1,2,3,4,5,6,7"
-  //
-  //      If the process group op uses device 0 - 7 and the each tensor of the
-  //      input tensor list is on device, 0, 4, 5, 6, 7, 1, 2, 3 separately,
-  //      then the value of the used device string stored would be
-  //      "0,4,5,6,7,1,2,3"
-  //
-  //      Note that the order of the device for the tensor list matters.
-  using ccl_comm_t = std::shared_ptr<class CCLCommsCollector>;
-  std::unordered_map<std::string, ccl_comm_t> gpu_comms;
 
   // processGroupID tracking
   static std::mutex pgTrackingLock_;

@@ -162,7 +162,7 @@ std::shared_ptr<ProcessGroup> ProcessGroupCCL::createProcessGroupCCL(
 
 ProcessGroupCCL::ProcessGroupCCL(const std::shared_ptr<Store>& store, int rank, int size, const std::chrono::milliseconds& op_time_out)
     : ProcessGroup(rank, size), store_(store), op_timeout_millis(op_time_out),
-      kvs([=](){
+      ccl_comms([=](){
         ccl::shared_ptr_class<ccl::kvs> kvs;
 
         std::string storeKey = "ccl_kvs";
@@ -186,10 +186,7 @@ ProcessGroupCCL::ProcessGroupCCL(const std::shared_ptr<Store>& store, int rank, 
                       main_addr.begin());
           kvs = ccl::environment::instance().create_kvs(main_addr);
         }
-        return kvs;
-      }()),
-      comm([=](){
-        return ccl::environment::instance().create_communicator(size, rank, kvs);
+        return torch_ccl::CCLCommsCollector(rank, size, kvs);
       }())
 {
 }
