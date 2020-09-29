@@ -3,8 +3,10 @@
 //
 
 #include "ccl_comm_collector.h"
+#ifdef USE_DPCPP
 #include <core/DPCPPUtils.h>
 #include <core/Context.h>
+#endif
 
 namespace torch_ccl {
 
@@ -21,7 +23,7 @@ std::shared_ptr<CPUComms> CCLCommsCollector::get_ccl_comms<CPUComms>(const std::
     return nullptr;
   }
 }
-
+#ifdef USE_DPCPP
 template <>
 std::shared_ptr<GPUComms> CCLCommsCollector::get_ccl_comms<GPUComms>(const std::string& devices_key) {
   if (gpu_comms_map.find(devices_key) != gpu_comms_map.end()) {
@@ -32,16 +34,18 @@ std::shared_ptr<GPUComms> CCLCommsCollector::get_ccl_comms<GPUComms>(const std::
     return nullptr;
   }
 }
+#endif
 
 template <>
 void CCLCommsCollector::set_ccl_comms<CPUComms>(const std::string& devices_key, std::shared_ptr<CPUComms>& gpu_comms) {
   cpu_comms_map.emplace(devices_key, gpu_comms);
 }
-
+#ifdef USE_DPCPP
 template <>
 void CCLCommsCollector::set_ccl_comms<GPUComms>(const std::string& devices_key, std::shared_ptr<GPUComms>& cpu_comms) {
   gpu_comms_map.emplace(devices_key, cpu_comms);
 }
+#endif
 
 template <>
 CPUComms& CCLCommsCollector::get_ccl_comms<CPUComms>(const std::string& devices_key, const std::vector<at::Device>& devices) {
@@ -52,7 +56,7 @@ CPUComms& CCLCommsCollector::get_ccl_comms<CPUComms>(const std::string& devices_
       "the devices are empty ");
   }
 
-  assert(devices.size() == 1 && "device size must be 1");
+  TORCH_CHECK(devices.size() == 1, "CPU device size must be 1");
 
   std::shared_ptr<CPUComms> cpu_comms_ptr = get_ccl_comms<CPUComms>(devices_key);
   if (cpu_comms_ptr) {
@@ -67,7 +71,7 @@ CPUComms& CCLCommsCollector::get_ccl_comms<CPUComms>(const std::string& devices_
 
   return *cpu_comms_ptr.get();
 }
-
+#ifdef USE_DPCPP
 template <>
 GPUComms& CCLCommsCollector::get_ccl_comms<GPUComms>(const std::string& devices_key, const std::vector<at::Device>& devices) {
   // Sanity check
@@ -121,6 +125,6 @@ GPUComms& CCLCommsCollector::get_ccl_comms<GPUComms>(const std::string& devices_
 
   return *gpu_comms_ptr.get();
 }
-
+#endif
 }
 

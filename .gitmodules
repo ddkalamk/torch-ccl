@@ -1,4 +1,4 @@
 [submodule "third_party/oneCCL"]
 	path = third_party/oneCCL
-	url = https://github.com/oneapi-src/oneCCL.git
-        branch = 2021.1-beta07-1
+	url = ssh://git@gitlab.devtools.intel.com:29418/chengjun/oneccl.git
+	branch = new_api

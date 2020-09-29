@@ -34,7 +34,10 @@
 #include "utils.h"
 
 #include <map>
+#include <ATen/record_function.h>
+#ifdef USE_DPCPP
 #include <core/Stream.h>
+#endif
 
 namespace c10d
 {

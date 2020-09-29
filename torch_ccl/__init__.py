@@ -3,7 +3,7 @@ import warnings
 
 try:
     import torch_ipex
-    DPCPP_RUNTIME = True
+    DPCPP_RUNTIME = False
 except:
     DPCPP_RUNTIME = False
 

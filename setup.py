@@ -1,5 +1,7 @@
 # DEBUG build with debug
 
+# USE_DPCPP -  build the torch_ccl library support the sycl
+
 import os
 import pathlib
 import shutil
@@ -19,6 +21,14 @@ BUILD_DIR = 'build'
 
 def check_env_flag(name, default=''):
     return os.getenv(name, default).upper() in ['ON', '1', 'YES', 'TRUE', 'Y']
+
+
+def _get_complier():
+    if not os.getenv("DPCPP_ROOT") is None:
+        # dpcpp build
+        return "clang", "clang++"
+    else:
+        return "gcc", "g++"
 
 
 # hotpatch environment variable 'CMAKE_BUILD_TYPE'. 'CMAKE_BUILD_TYPE' always prevails over DEBUG or REL_WITH_DEB_INFO.
@@ -187,7 +197,6 @@ class CMakeExtension(Extension):
             'IPEX_INCLUDE_DIRS': convert_cmake_dirs(ipex_include_paths()),
             'IPEX_LIBRARY_DIRS': convert_cmake_dirs(ipex_library_paths()),
             'LIB_NAME': python_lib,
-            'COMPUTE_RUNTIME': str(self.runtime),
         }
 
         for var, val in my_env.items():
@@ -195,12 +204,12 @@ class CMakeExtension(Extension):
                 build_options[var] = val
 
         if self.runtime == "dpcpp":
-            pass
+            build_options += {'COMPUTE_RUNTIME': str(self.runtime) }
         elif self.runtime == "native:":
             pass
-
-        defines(cmake_args, CMAKE_C_COMPILER="clang")
-        defines(cmake_args, CMAKE_CXX_COMPILER="clang++")
+        cc, cxx = _get_complier()
+        defines(cmake_args, CMAKE_C_COMPILER=cc)
+        defines(cmake_args, CMAKE_CXX_COMPILER=cxx)
         defines(cmake_args, **build_options)
         base_dir = os.path.dirname(os.path.abspath(__file__))
         cmake_args.append(base_dir)
@@ -284,11 +293,13 @@ class Clean(clean):
 
 if __name__ == '__main__':
   build_deps()
+  modules = [CMakeExtension("liboccl",       "./CMakeLists.txt", runtime='native')]
+  if False:
+      modules.append(CMakeExtension("liboccl_dpcpp", "./CMakeLists.txt", runtime='dpcpp'))
   setup(
       name=package_name,
       version=version,
-      ext_modules=[#CMakeExtension("liboccl",       "./CMakeLists.txt", runtime='native'),
-                   CMakeExtension("liboccl_dpcpp", "./CMakeLists.txt", runtime='dpcpp')],
+      ext_modules=modules,
       packages=['torch_ccl'],
       package_data={
           'torch_ccl': [

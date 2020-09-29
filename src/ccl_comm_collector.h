@@ -42,9 +42,11 @@ public:
   std::vector<ccl::stream> streams;
 };
 
-using GPUComms = Comms<ccl::device_communicator>;
-
 using CPUComms = Comms<ccl::communicator>;
+
+#ifdef USE_DPCPP
+using GPUComms = Comms<ccl::device_communicator>;
+#endif
 
 class CCLCommsCollector {
 public:
@@ -101,7 +103,9 @@ private:
   //      "0,4,5,6,7,1,2,3"
   //
   //      Note that the order of the device for the tensor list matters.
+#ifdef USE_DPCPP
   std::unordered_map<std::string, std::shared_ptr<GPUComms>> gpu_comms_map;
+#endif
 
 };
 

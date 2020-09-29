@@ -68,22 +68,18 @@ public:
                CommType& comms) : AsyncWorkCCL(inputs, outputs), f(f), comms(comms) {}
 
   void run() override {
-      run_wrap_<num_params>();
+    using Indices = std::make_index_sequence<num_params - 3>;
+      run_wrap_(Indices{});
   };
 
 private:
-  template <int num_params>
-  void run_wrap_() {}
 
-  template <>
-  void run_wrap_<3>() {
-    req = f(inputs[0], outputs[0], comms.comms[0]);
+
+  template <std::size_t...INDEX>
+  void run_wrap_(std::index_sequence<INDEX...>) {
+    req = f(inputs[0], outputs[0], comms.comms[0], comms.streams[INDEX]...);
   }
 
-  template <>
-  void run_wrap_<4>() {
-    req = f(inputs[0], outputs[0], comms.comms[0], comms.streams[0]);
-  }
 
   RunF f;
   CommType& comms;
