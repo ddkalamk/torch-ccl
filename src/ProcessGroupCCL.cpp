@@ -31,6 +31,7 @@
 
 #include "ProcessGroupCCL.hpp"
 #include "dispatch_stub.h"
+#include "utils.h"
 
 #include <map>
 #include <core/Stream.h>
@@ -149,14 +150,7 @@ std::shared_ptr<ProcessGroup> ProcessGroupCCL::createProcessGroupCCL(
 {
     cclInitOnce();
 
-//    TORCH_CHECK(((rank == -1) || (size_t)rank == globalComm->rank()),
-//        "unexpected rank " + std::to_string(rank) +
-//        ", CCL rank " + std::to_string(globalComm->rank()));
-//
-//    TORCH_CHECK(((size == -1) || (size_t)size == globalComm->size()),
-//        "unexpected size " + std::to_string(size) +
-//        ", CCL size " + std::to_string(globalComm->size()));
-
+    printf("torch ccl create process group rank %d, size %d", rank, size);
     return std::make_shared<ProcessGroupCCL>(store, rank, size, op_time_out);
 }
 
@@ -172,10 +166,13 @@ ProcessGroupCCL::ProcessGroupCCL(const std::shared_ptr<Store>& store, int rank, 
           kvs = ccl::environment::instance().create_main_kvs();
           ccl::kvs::address_type main_addr = kvs->get_address();
           auto ccl_kvs_addr = std::vector<uint8_t>(main_addr.begin(), main_addr.end());
+          printf("torch ccl rank %d, send kvs addr", rank);
           store_->set(storeKey, ccl_kvs_addr);
         }
         else {
+          printf("torch ccl rank %d, receiving kvs addr", rank);
           auto ccl_kvs_addr = store_->get(storeKey);
+          printf("torch ccl rank %d, got kvs addr", rank);
           if (ccl_kvs_addr.size() != ccl::kvs::address_max_size) {
             throw std::runtime_error(
               "Unexpected ccl kvs addr from the store");

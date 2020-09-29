@@ -14,27 +14,6 @@
   } while (0);
 
 
-#define CCL_CHECK(cmd)                                                   \
-  do {                                                                   \
-    try {                                                                \
-        cmd;                                                             \
-    }                                                                    \
-    catch (ccl::ccl_error& e) {                                          \
-        std::string err = "CCL error in: " + std::string(__FILE__) +     \
-            ":" + std::to_string(__LINE__) +                             \
-            ", with error message: " + e.what();                         \
-        fprintf(stderr, "\n%s\n", err.c_str());                          \
-        throw std::runtime_error(err);                                   \
-    }                                                                    \
-    catch (...) {                                                        \
-        std::string err = "unknown error in: " + std::string(__FILE__) + \
-            ":" + std::to_string(__LINE__);                              \
-        fprintf(stderr, "\n%s\n", err.c_str());                          \
-        throw std::runtime_error(err);                                   \
-    }                                                                    \
-  } while (0)
-
-
 #define CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(TYPE, NAME, ...)                          \
   [&] {                                                                      \
     const auto& the_type = TYPE;                                             \

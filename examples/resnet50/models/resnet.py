@@ -151,18 +151,31 @@ class ResNet(nn.Module):
 
     def forward(self, x):
         x = self.conv1(x)
-        x = self.bn1(x)
+        # print("=> forward x device", x.device)
+        #
+        # for param in self.bn1.parameters():
+        #     print("=> bn param device", param.device)
+        # print("=> bn num tracked device", self.bn1.num_batches_tracked)
+        # x = self.bn1(x)
         x = self.relu(x)
+        print("=> resnet here1")
         x = self.maxpool(x)
 
+        print("=> resnet maxpool")
         x = self.layer1(x)
+        print("=> resnet layer1")
         x = self.layer2(x)
+        print("=> resnet layer2")
         x = self.layer3(x)
+        print("=> resnet layer3")
         x = self.layer4(x)
+        print("=> resnet layer4")
 
         x = self.avgpool(x)
+        print("=> resnet avgpool")
         x = x.view(x.size(0), -1)
         x = self.fc(x)
+        print("=> resnet fc")
 
         return x
 

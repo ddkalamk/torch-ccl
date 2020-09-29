@@ -7,10 +7,48 @@
 
 #include "ProcessGroupCCL.hpp"
 #include <ATen/detail/FunctionTraits.h>
+#include <c10d/Types.hpp>
+
+#define CCL_CHECK(cmd)                                               \
+  do {                                                               \
+    try {                                                            \
+        cmd;                                                         \
+    }                                                                \
+    catch (ccl::ccl_error& e) {                                      \
+        throw std::runtime_error("CCL error in: " +                  \
+            std::string(__FILE__) + ":" + std::to_string(__LINE__) + \
+            ", with error message: " + e.what());                    \
+    }                                                                \
+    catch (std::runtime_error& e) {                                  \
+      throw e;                                                       \
+    }                                                                \
+    catch (...) {                                                    \
+        throw std::runtime_error("unknown error in: " +              \
+            std::string(__FILE__) + ":" + std::to_string(__LINE__)); \
+    }                                                                \
+  } while (0)
+
+#define CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(TYPE, NAME, ...)                          \
+  [&] {                                                                      \
+    const auto& the_type = TYPE;                                             \
+    /* don't use TYPE again in case it is an expensive or side-effect op */  \
+    at::ScalarType _st = ::detail::scalar_type(the_type);                    \
+    switch (_st) {                                                           \
+      /*AT_PRIVATE_CASE_TYPE(at::ScalarType::Char, char, __VA_ARGS__)*/          \
+      AT_PRIVATE_CASE_TYPE(at::ScalarType::Int, int, __VA_ARGS__)       \
+      AT_PRIVATE_CASE_TYPE(at::ScalarType::Long, int64_t, __VA_ARGS__)       \
+      AT_PRIVATE_CASE_TYPE(at::ScalarType::Float, float, __VA_ARGS__)        \
+      AT_PRIVATE_CASE_TYPE(at::ScalarType::Double, double, __VA_ARGS__)      \
+      default:                                                               \
+        AT_ERROR(#NAME, " not implemented for '", toString(_st), "'");       \
+    }                                                                        \
+  }()
 
 namespace torch_ccl {
 
 using c10d::ProcessGroupCCL;
+
+extern std::map<c10d::ReduceOp, ccl::reduction> cclOps;
 
 // Get the deviceList String from the list of devices
 std::string get_key_from_devs(const std::vector<at::Device>& devices);
@@ -30,7 +68,7 @@ public:
                CommType& comms) : AsyncWorkCCL(inputs, outputs), f(f), comms(comms) {}
 
   void run() override {
-    run_wrap_<num_params>();
+      run_wrap_<num_params>();
   };
 
 private:

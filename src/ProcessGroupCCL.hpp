@@ -44,22 +44,6 @@
 #include <oneapi/ccl.hpp>
 #include "ccl_comm_collector.h"
 
-#define CCL_CHECK(cmd)                                               \
-  do {                                                               \
-    try {                                                            \
-        cmd;                                                         \
-    }                                                                \
-    catch (ccl::ccl_error& e) {                                      \
-        throw std::runtime_error("CCL error in: " +                  \
-            std::string(__FILE__) + ":" + std::to_string(__LINE__) + \
-            ", with error message: " + e.what());                    \
-    }                                                                \
-    catch (...) {                                                    \
-        throw std::runtime_error("unknown error in: " +              \
-            std::string(__FILE__) + ":" + std::to_string(__LINE__)); \
-    }                                                                \
-  } while (0)
-
 namespace c10d {
 
 // WorkCCL is the state associated with a CCL operarion.

@@ -57,15 +57,6 @@ std::map<ccl_datatype_t, at::ScalarType> ptDatatypes =
   };
 #endif
 
-// Op mapping
-std::map<ReduceOp, ccl::reduction> cclOps =
-  {
-    {ReduceOp::MIN, ccl::reduction::min},
-    {ReduceOp::MAX, ccl::reduction::max},
-    {ReduceOp::SUM, ccl::reduction::sum},
-    {ReduceOp::PRODUCT, ccl::reduction::prod},
-  };
-
 std::ostream& operator << (std::ostream& os, const SparseResultMode& mode)
 {
   os << static_cast<std::underlying_type<SparseResultMode>::type>(mode);
@@ -242,7 +233,6 @@ protected:
 struct RegisterCPUPMethods {
   RegisterCPUPMethods() {
     static VanillaCPU methods;
-    printf("register cpu backend\n");
     sparseCoalesceMode = ccl::sparse_coalesce_mode::regular;
     const char* sparseCoalesceModeEnv = getenv("CCL_SPARSE_COALESCE_MODE");
     if (sparseCoalesceModeEnv)
@@ -438,10 +428,10 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allreduce_(std::vecto
           ccl::communicator& comm){
             RECORD_FUNCTION("torch_ccl::cpu::allreduce", std::vector<c10::IValue>{input});
             ccl::communicator::coll_request_t ret_req;
-            CCL_CHECK(ret_req = comm.allreduce(tensors[0].data_ptr(),
-                                       tensors[0].data_ptr(),
-                                       (size_t)tensors[0].numel(),
-                                       cclDatatypes.at(tensors[0].scalar_type()),
+            CCL_CHECK(ret_req = comm.allreduce(input.data_ptr(),
+                                       output.data_ptr(),
+                                       (size_t)input.numel(),
+                                       cclDatatypes.at(input.scalar_type()),
                                        cclOps.at(opts.reduceOp)));
             return ret_req;
           });
@@ -500,14 +490,14 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::reduce_(std::vector<a
     [=](at::Tensor input,
        at::Tensor output,
        ccl::communicator& comm) {
-         RECORD_FUNCTION("torch_ccl::cpu::broadcast", std::vector<c10::IValue>{input});
+         RECORD_FUNCTION("torch_ccl::cpu::reduce", std::vector<c10::IValue>{input});
          ccl::communicator::coll_request_t ret_req;
-         CCL_CHECK(ret_req = comm.reduce(tensors[0].data_ptr(),
-                                      tensors[0].data_ptr(),
-                                      (size_t)tensors[0].numel(),
-                                      cclDatatypes.at(tensors[0].scalar_type()),
-                                      cclOps.at(opts.reduceOp),
-                                      (size_t)opts.rootRank));
+         CCL_CHECK(ret_req = comm.reduce(input.data_ptr(),
+                                         input.data_ptr(),
+                                         (size_t)input.numel(),
+                                         cclDatatypes.at(input.scalar_type()),
+                                         cclOps.at(opts.reduceOp),
+                                         (size_t)opts.rootRank));
          return ret_req;
     });
 
@@ -530,9 +520,9 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::broadcast_(std::vecto
        ccl::communicator& comm) {
       RECORD_FUNCTION("torch_ccl::cpu::broadcast", std::vector<c10::IValue>{input});
       ccl::communicator::coll_request_t ret_req;
-      CCL_CHECK(ret_req = comm.broadcast(tensors[0].data_ptr(),
-                                     (size_t)tensors[0].numel(),
-                                     cclDatatypes.at(tensors[0].scalar_type()),
+      CCL_CHECK(ret_req = comm.broadcast(input.data_ptr(),
+                                     (size_t)input.numel(),
+                                     cclDatatypes.at(input.scalar_type()),
                                      (size_t)opts.rootRank));
       return ret_req;
     });
@@ -580,7 +570,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allgather_(std::vecto
     [=](at::Tensor input,
        at::Tensor /*output*/,
        ccl::communicator& comm) {
-      work->debugName = std::string("allgather::sz:") + std::to_string(inputTensors[0].numel());
+      work->debugName = std::string("allgather::sz:") + std::to_string(input.numel());
       RECORD_FUNCTION("torch_ccl::cpu::allgather", std::vector<c10::IValue>({input}));
 
       ccl::communicator::coll_request_t ret_req;
@@ -588,12 +578,12 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allgather_(std::vecto
         auto &env = ccl::environment::instance();
         auto attr = env.create_operation_attr<ccl::allgatherv_attr>();
         attr.set<ccl::allgatherv_attr_id::vector_buf>(flatRes.isFlat ? 0 : 1);
-        CCL_CHECK(ret_req = comm.allgatherv(inputTensors[0].data_ptr(),
-                                        (size_t)inputTensors[0].numel(),
-                                        recvBuf,
-                                        recvCounts,
-                                        cclDatatypes.at(inputTensors[0].scalar_type()),
-                                        attr));
+        CCL_CHECK(ret_req = comm.allgatherv(input.data_ptr(),
+                                            (size_t)input.numel(),
+                                            recvBuf,
+                                            recvCounts,
+                                            cclDatatypes.at(input.scalar_type()),
+                                            attr));
       }
 
       return ret_req;

@@ -6,6 +6,16 @@
 
 namespace torch_ccl {
 
+// Op mapping
+using c10d::ReduceOp;
+std::map<c10d::ReduceOp, ccl::reduction> cclOps =
+  {
+    {ReduceOp::MIN, ccl::reduction::min},
+    {ReduceOp::MAX, ccl::reduction::max},
+    {ReduceOp::SUM, ccl::reduction::sum},
+    {ReduceOp::PRODUCT, ccl::reduction::prod},
+  };
+
 // Get the deviceList String from the list of devices
 std::string get_key_from_devs(const std::vector<at::Device>& devices) {
   std::string deviceList;

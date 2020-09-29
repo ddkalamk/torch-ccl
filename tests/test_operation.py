@@ -62,7 +62,7 @@ class ProcessGroupOCCLTest(TestCase):
             work.wait()
 
         # for every root rank
-        for dev_type in [dpcpp_device, cpu_device]:
+        for dev_type in [cpu_device]:
             for rt in range(self.world_size):
                 tensors = []
                 tensors.append(torch.tensor([self.rank], device=dev_type))

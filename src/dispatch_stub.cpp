@@ -14,6 +14,7 @@ DispatchStub* DispatchStub::stubs_[to_int(c10::DeviceType::COMPILE_TIME_MAX_DEVI
 };
 
 void DispatchStub::register_ccl_stub(c10::DeviceType dev_type, DispatchStub* stub) {
+  std::cout <<"register backend: " << dev_type << std::endl;
   stubs_[to_int(dev_type)] = stub;
 }
 

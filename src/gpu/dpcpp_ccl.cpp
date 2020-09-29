@@ -8,23 +8,6 @@
 #include <core/Context.h>
 #include <utils.h>
 
-#define CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(TYPE, NAME, ...)                          \
-  [&] {                                                                      \
-    const auto& the_type = TYPE;                                             \
-    /* don't use TYPE again in case it is an expensive or side-effect op */  \
-    at::ScalarType _st = ::detail::scalar_type(the_type);                    \
-    switch (_st) {                                                           \
-      /*AT_PRIVATE_CASE_TYPE(at::ScalarType::Char, char, __VA_ARGS__)*/          \
-      AT_PRIVATE_CASE_TYPE(at::ScalarType::Int, int, __VA_ARGS__)       \
-      AT_PRIVATE_CASE_TYPE(at::ScalarType::Long, int64_t, __VA_ARGS__)       \
-      AT_PRIVATE_CASE_TYPE(at::ScalarType::Float, float, __VA_ARGS__)        \
-      AT_PRIVATE_CASE_TYPE(at::ScalarType::Double, double, __VA_ARGS__)      \
-      default:                                                               \
-        AT_ERROR(#NAME, " not implemented for '", toString(_st), "'");       \
-    }                                                                        \
-  }()
-
-
 namespace torch_ccl
 {
 
@@ -134,7 +117,6 @@ struct RegisterDPCPPPMethods {
   RegisterDPCPPPMethods() {
     static DPCPPCCLStubs methods;
     DispatchStub::register_ccl_stub(c10::DeviceType::DPCPP, &methods);
-    printf("register dpcpp backend\n");
   }
 };
 
@@ -142,7 +124,33 @@ struct RegisterDPCPPPMethods {
 std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> DPCPPCCLStubs::allreduce_(std::vector<at::Tensor>& tensors,
                                                                          const AllreduceOptions& opts,
                                                                          ProcessGroupCCL& pg_ccl) {
-  TORCH_CHECK(false, "not implemented");
+  auto dev_type = check_tensors_properties(tensors);
+
+  return collective(
+    pg_ccl.ccl_comms,
+    tensors,
+    tensors,
+    [&](at::Tensor& input,
+        at::Tensor& output,
+        ccl::device_communicator& comm,
+        ccl::stream& stream) {
+      RECORD_FUNCTION("torch_ccl::dpcpp::allreduce", std::vector<c10::IValue>({input}));
+      auto count = input.numel();
+      auto attr = ccl::environment::instance().create_operation_attr<ccl::allreduce_attr>();
+
+      ccl::communicator::coll_request_t ret_req;
+
+      CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "allreduce", [&] {
+        CCL_CHECK(ret_req = comm.allreduce(
+          input.data_ptr<scalar_t>(),
+          output.data_ptr<scalar_t>(),
+          (size_t)count,
+          cclOps.at(opts.reduceOp),
+          stream,
+          attr));
+    });
+    return ret_req;
+  });
 }
 
 std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> DPCPPCCLStubs::reduce_(std::vector<at::Tensor>& tensors,
