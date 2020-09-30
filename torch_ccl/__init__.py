@@ -1,16 +1,13 @@
 import sys
 import warnings
 
-try:
-    import torch_ipex
-    DPCPP_RUNTIME = False
-except:
-    DPCPP_RUNTIME = False
+from .lib import libtorch_ccl as occl_lib
 
-if DPCPP_RUNTIME:
-    from .lib import liboccl_dpcpp as occl_lib
-else:
-    from .lib import liboccl as occl_lib
+try:
+    from .lib import liboccl_dpcpp
+except:
+    print("failed to load dpcpp ccl")
+
 
 
 from .occl import (

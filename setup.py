@@ -7,6 +7,8 @@ import pathlib
 import shutil
 import multiprocessing
 from subprocess import check_call, check_output
+from tools.env import _find_dpcpp_home, BUILD_DIR
+
 from torch.utils.cpp_extension import include_paths, library_paths
 from torch_ipex import include_paths as ipex_include_paths
 from torch_ipex import library_paths as ipex_library_paths
@@ -16,15 +18,14 @@ from distutils.command.clean import clean
 from distutils.version import LooseVersion
 
 
-BUILD_DIR = 'build'
 
 
 def check_env_flag(name, default=''):
     return os.getenv(name, default).upper() in ['ON', '1', 'YES', 'TRUE', 'Y']
 
 
-def _get_complier():
-    if not os.getenv("DPCPP_ROOT") is None:
+def _get_complier(runtime):
+    if runtime == "dpcpp":
         # dpcpp build
         return "clang", "clang++"
     else:
@@ -47,6 +48,7 @@ lib_path = os.path.join(cwd, "torch_ccl", "lib")
 package_name = os.getenv('OCCL_PACKAGE_NAME', 'torch-ccl')
 version = open('version.txt', 'r').read().strip()
 sha = 'Unknown'
+build_dpcpp = check_env_flag('USE_DPCPP')
 
 try:
     sha = check_output(['git', 'rev-parse', 'HEAD'], cwd=cwd).decode('ascii').strip()
@@ -77,9 +79,6 @@ def build_deps():
     version_path = os.path.join(cwd, 'torch_ccl', 'version.py')
     with open(version_path, 'w') as f:
         f.write("__version__ = '{}'\n".format(version))
-        # NB: This is not 100% accurate, because you could have built the
-        # library code with DEBUG, but csrc without DEBUG (in which case
-        # this would claim to be a release build when it's not.)
         f.write("build_type = '{}'\n".format(os.environ['CMAKE_BUILD_TYPE']))
         f.write("git_version = {}\n".format(repr(sha)))
 
@@ -190,7 +189,7 @@ class CMakeExtension(Extension):
             # The default value cannot be easily obtained in CMakeLists.txt. We set it here.
             # 'CMAKE_PREFIX_PATH': distutils.sysconfig.get_python_lib()
             'CMAKE_BUILD_TYPE': 'Debug' if self.debug else 'Release',
-            'CMAKE_LIBRARY_OUTPUT_DIRECTORY': install_prefix,
+            'CMAKE_INSTALL_PREFIX': install_prefix,
             'PYTHON_INCLUDE_DIRS': str(distutils.sysconfig.get_python_inc()),
             'PYTORCH_INCLUDE_DIRS': convert_cmake_dirs(include_paths()),
             'PYTORCH_LIBRARY_DIRS': convert_cmake_dirs(library_paths()),
@@ -204,10 +203,10 @@ class CMakeExtension(Extension):
                 build_options[var] = val
 
         if self.runtime == "dpcpp":
-            build_options += {'COMPUTE_RUNTIME': str(self.runtime) }
+            build_options['COMPUTE_RUNTIME'] = str(self.runtime)
         elif self.runtime == "native:":
             pass
-        cc, cxx = _get_complier()
+        cc, cxx = _get_complier(self.runtime)
         defines(cmake_args, CMAKE_C_COMPILER=cc)
         defines(cmake_args, CMAKE_CXX_COMPILER=cxx)
         defines(cmake_args, **build_options)
@@ -244,7 +243,7 @@ class BuildCMakeExt(build_ext):
         extension_path = pathlib.Path(self.get_ext_fullpath(extension.name))
 
         build_dir.mkdir(parents=True, exist_ok=True)
-        install_dir = str(extension_path.parent.absolute()) + '/torch_ccl/lib'
+        install_dir = str(extension_path.parent.absolute()) + '/torch_ccl'
         # extension_path.parent.absolute().mkdir(parents=True, exist_ok=True)
 
         # Now that the necessary directories are created, build
@@ -262,7 +261,7 @@ class BuildCMakeExt(build_ext):
 
         max_jobs = os.getenv('MAX_JOBS', str(multiprocessing.cpu_count()))
         build_args = [
-            '--', '-j', max_jobs
+            '--target', 'install', '--', '-j', max_jobs
         ]
 
         self.spawn(['cmake', '--build', str(build_dir)] + build_args)
@@ -293,9 +292,12 @@ class Clean(clean):
 
 if __name__ == '__main__':
   build_deps()
-  modules = [CMakeExtension("liboccl",       "./CMakeLists.txt", runtime='native')]
-  if False:
-      modules.append(CMakeExtension("liboccl_dpcpp", "./CMakeLists.txt", runtime='dpcpp'))
+  modules = [CMakeExtension("libtorch_ccl", "./CMakeLists.txt", runtime='native')]
+
+  # if build_dpcpp:
+  #     dpcpp_home = _find_dpcpp_home()
+  #     if dpcpp_home:
+  #       modules.append(CMakeExtension("libtorch_ccl_dpcpp", "./CMakeLists.txt", runtime='dpcpp'))
   setup(
       name=package_name,
       version=version,
