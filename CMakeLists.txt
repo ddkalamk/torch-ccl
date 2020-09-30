@@ -4,6 +4,10 @@ set(CMAKE_CXX_STANDARD 17)
 # Find modules.
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules)
 
+IF(COMPUTE_RUNTIME STREQUAL "dpcpp")
+    include(cmake/DPCPP.cmake)
+ENDIF()
+
 set(DEPENDS_LIB)
 
 # Find OneCCL Lib
@@ -13,13 +17,9 @@ list(APPEND DEPENDS_LIB ${ONECCL_LIBRARIES})
 set(OCCL_SRCS src/init.cpp src/ProcessGroupCCL.cpp src/cpu/cpu_ccl.cpp src/dispatch_stub.cpp src/utils.cpp src/ccl_comm_collector.cpp)
 
 if(USE_DPCPP)
-    set(OCCL_SRCS ${OCCL_SRCS} src/gpu/dpcpp_ccl.cpp )
+    add_definitions(-DUSE_DPCPP)
+    set(OCCL_SRCS ${OCCL_SRCS} src/gpu/dpcpp_ccl.cpp src/gpu/ccl_comm_collector.cpp)
 endif()
-
-IF(COMPUTE_RUNTIME STREQUAL "dpcpp" OR COMPUTE_RUNTIME STREQUAL "native")
-    # import sycl SYCL
-    include(cmake/SYCL.cmake)
-ENDIF()
 
 function(GetOCCLLibName LIB_NAME)
     string(REPLACE "." ";" NAMES_LIST ${LIB_NAME})

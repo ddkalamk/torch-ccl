@@ -35,9 +35,6 @@
 
 #include <map>
 #include <ATen/record_function.h>
-#ifdef USE_DPCPP
-#include <core/Stream.h>
-#endif
 
 namespace c10d
 {
@@ -159,7 +156,7 @@ std::shared_ptr<ProcessGroup> ProcessGroupCCL::createProcessGroupCCL(
 
 ProcessGroupCCL::ProcessGroupCCL(const std::shared_ptr<Store>& store, int rank, int size, const std::chrono::milliseconds& op_time_out)
     : ProcessGroup(rank, size), store_(store), op_timeout_millis(op_time_out),
-      ccl_comms([=](){
+      kvs([=](){
         ccl::shared_ptr_class<ccl::kvs> kvs;
 
         std::string storeKey = "ccl_kvs";
@@ -186,7 +183,7 @@ ProcessGroupCCL::ProcessGroupCCL(const std::shared_ptr<Store>& store, int rank, 
                       main_addr.begin());
           kvs = ccl::environment::instance().create_kvs(main_addr);
         }
-        return torch_ccl::CCLCommsCollector(rank, size, kvs);
+        return kvs;
       }())
 {
 }

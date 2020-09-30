@@ -198,9 +198,11 @@ bool computeLengthsAndCheckAndGetFlat(
 
 } //namespace anonymous
 
-class VanillaCPU final: public DispatchStub {
 
+class VanillaCPU final: public DispatchStub {
 public:
+  using CPUComms =  torch_ccl::CCLCommsCollector<ccl::communicator>;
+
   VanillaCPU() {}
 
   bool enabled() override {
@@ -228,6 +230,19 @@ protected:
                                                             std::vector<at::Tensor>& inputTensors,
                                                             const AllgatherOptions& opts,
                                                             ProcessGroupCCL& pg_ccl) override;
+private:
+  CPUComms& get_comms_collector(ProcessGroupCCL& pg_ccl) {
+    if (ccl_comms.find(pg_ccl.processGroupID_) != ccl_comms.end()) {
+      // Reuse the cached communicator if there is one.
+      return *ccl_comms[pg_ccl.processGroupID_];
+    }
+    auto comms = std::make_shared<CPUComms>(pg_ccl.getSize(), pg_ccl.getRank(), pg_ccl.kvs);
+    ccl_comms.emplace(pg_ccl.processGroupID_, comms);
+
+    return *ccl_comms[pg_ccl.processGroupID_];
+  }
+  // Maintain all the communicators.
+  std::unordered_map<std::string, std::shared_ptr<CPUComms>> ccl_comms;
 };
 
 struct RegisterCPUPMethods {
@@ -420,7 +435,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allreduce_(std::vecto
   std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> work;
   if (layout == c10::kStrided) {
     work = collective(
-      pg_ccl.ccl_comms,
+      get_comms_collector(pg_ccl),
       tensors,
       tensors,
       [=](at::Tensor input,
@@ -438,7 +453,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allreduce_(std::vecto
 
   } else if (layout == c10::kSparse) {
     work = collective(
-      pg_ccl.ccl_comms,
+      get_comms_collector(pg_ccl),
       tensors,
       tensors,
       [=](at::Tensor input,
@@ -484,7 +499,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::reduce_(std::vector<a
 
   std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> work;
   work = collective(
-    pg_ccl.ccl_comms,
+    get_comms_collector(pg_ccl),
     tensors,
     tensors,
     [=](at::Tensor input,
@@ -512,7 +527,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::broadcast_(std::vecto
 
   std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> work;
   work = collective(
-    pg_ccl.ccl_comms,
+    get_comms_collector(pg_ccl),
     tensors,
     tensors,
     [=](at::Tensor input,
@@ -564,7 +579,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allgather_(std::vecto
 
   std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> work;
   work = collective(
-    pg_ccl.ccl_comms,
+    get_comms_collector(pg_ccl),
     inputTensors,
     inputTensors,
     [=](at::Tensor input,

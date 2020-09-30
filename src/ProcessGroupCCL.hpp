@@ -200,15 +200,13 @@ public:
   std::shared_ptr<Store> store_;
   std::chrono::milliseconds op_timeout_millis;
 
-  // Maintain all the communicators.
-  torch_ccl::CCLCommsCollector ccl_comms;
-
   // ID of this process group
   std::string processGroupID_;
 
   // Group Prefix and ID of this process group
   std::string groupPgID_;
 
+  ccl::shared_ptr_class<ccl::kvs> kvs;
 
   // processGroupID tracking
   static std::mutex pgTrackingLock_;

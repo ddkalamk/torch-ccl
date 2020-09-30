@@ -1,12 +1,9 @@
 import sys
 import warnings
 
-from .lib import libtorch_ccl as occl_lib
+# from .lib import libtorch_ccl as occl_lib
 
-try:
-    from .lib import liboccl_dpcpp
-except:
-    print("failed to load dpcpp ccl")
+from .lib import libtorch_ccl_dpcpp as occl_lib
 
 
 

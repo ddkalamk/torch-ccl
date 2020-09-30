@@ -80,6 +80,8 @@ std::vector<at::Device> get_device_list(const std::vector<std::vector<at::Tensor
 
 } //namespace anonymous
 
+using GPUComms =  torch_ccl::CCLCommsCollector<ccl::device_communicator>;
+
 class DPCPPCCLStubs final: public DispatchStub {
 
 public:
@@ -111,6 +113,19 @@ protected:
                                                             const AllgatherOptions& opts,
                                                             ProcessGroupCCL& pg_ccl) override;
 
+private:
+  GPUComms& get_comms_colloctor(ProcessGroupCCL& pg_ccl) {
+    if (ccl_comms.find(pg_ccl.processGroupID_) != ccl_comms.end()) {
+      // Reuse the cached communicator if there is one.
+      return *ccl_comms[pg_ccl.processGroupID_];
+    }
+    auto comms = std::make_shared<GPUComms>(pg_ccl.getSize(), pg_ccl.getRank(), pg_ccl.kvs);
+    ccl_comms.emplace(pg_ccl.processGroupID_, comms);
+
+    return *ccl_comms[pg_ccl.processGroupID_];
+  }
+  // Maintain all the communicators.
+  std::unordered_map<std::string, std::shared_ptr<GPUComms>> ccl_comms;
 };
 
 struct RegisterDPCPPPMethods {
@@ -127,7 +142,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> DPCPPCCLStubs::allreduce_(std::ve
   auto dev_type = check_tensors_properties(tensors);
 
   return collective(
-    pg_ccl.ccl_comms,
+    get_comms_colloctor(pg_ccl),
     tensors,
     tensors,
     [&](at::Tensor& input,
@@ -165,7 +180,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> DPCPPCCLStubs::broadcast_(std::ve
   auto dev_type = check_tensors_properties(tensors);
 
   return collective(
-    pg_ccl.ccl_comms,
+    get_comms_colloctor(pg_ccl),
     tensors,
     tensors,
     [&](at::Tensor input,

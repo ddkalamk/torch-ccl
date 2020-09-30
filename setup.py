@@ -292,8 +292,9 @@ class Clean(clean):
 
 if __name__ == '__main__':
   build_deps()
-  modules = [CMakeExtension("libtorch_ccl", "./CMakeLists.txt", runtime='native')]
-
+  modules = [CMakeExtension("libtorch_ccl_dpcpp", "./CMakeLists.txt", runtime='dpcpp')]
+  # modules = [CMakeExtension("libtorch_ccl", "./CMakeLists.txt", runtime='native')]
+  #
   # if build_dpcpp:
   #     dpcpp_home = _find_dpcpp_home()
   #     if dpcpp_home:

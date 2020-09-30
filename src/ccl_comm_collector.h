@@ -42,15 +42,12 @@ public:
   std::vector<ccl::stream> streams;
 };
 
-using CPUComms = Comms<ccl::communicator>;
-
-#ifdef USE_DPCPP
-using GPUComms = Comms<ccl::device_communicator>;
-#endif
-
+template <typename CCLCommType>
 class CCLCommsCollector {
 public:
-  CCLCommsCollector(int rank, int size, ccl::shared_ptr_class<ccl::kvs> kvs) :
+  using CommsType = Comms<CCLCommType>;
+
+  CCLCommsCollector(int rank = -1, int size = -1, ccl::shared_ptr_class<ccl::kvs> kvs = nullptr) :
     rank_(rank), size_(size), kvs_(kvs) {}
 
   ~CCLCommsCollector() noexcept {}
@@ -66,23 +63,17 @@ public:
   // Move assignable
   CCLCommsCollector &operator=(CCLCommsCollector &&other) = delete;
 
-  template <typename CommType>
-  std::shared_ptr<CommType> get_ccl_comms(const std::string& devices_key);
-
-  template <typename CommType>
-  void set_ccl_comms(const std::string& devices_key, std::shared_ptr<CommType>& comms);
-
-  template<class comm_type>
-  comm_type& get_ccl_comms(const std::string& devices_key, const std::vector<at::Device>& devices);
+  CommsType& get_ccl_comms(const std::string& devices_key, const std::vector<at::Device>& devices);
 
 private:
+  std::shared_ptr<CommsType> get_ccl_comms(const std::string& devices_key);
+
+  void set_ccl_comms(const std::string& devices_key, std::shared_ptr<CommsType>& comms);
+
   int rank_;
   int size_;
   // The kvs is unique ID among the processes.
   ccl::shared_ptr_class<ccl::kvs> kvs_;
-
-  // host communicator
-  std::unordered_map<std::string, std::shared_ptr<CPUComms>> cpu_comms_map;
 
   // The CCL communicator that the process group has cached.
   // The key is a list of GPU devices that an operation is operating on
@@ -103,10 +94,7 @@ private:
   //      "0,4,5,6,7,1,2,3"
   //
   //      Note that the order of the device for the tensor list matters.
-#ifdef USE_DPCPP
-  std::unordered_map<std::string, std::shared_ptr<GPUComms>> gpu_comms_map;
-#endif
-
+  std::unordered_map<std::string, std::shared_ptr<CommsType>> comms_map;
 };
 
 }
