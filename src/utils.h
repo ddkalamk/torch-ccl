@@ -56,6 +56,8 @@ std::string get_key_from_devs(const std::vector<at::Device>& devices);
 // Get the list of devices from list of tensors
 std::vector<at::Device> get_device_list(const std::vector<at::Tensor>& tensors);
 
+static ccl::communicator::coll_request_t null_req;
+
 template <typename RunF, typename CommType>
 class AsyncWorkCCLWrap : public ProcessGroupCCL::AsyncWorkCCL {
 public:
@@ -71,6 +73,78 @@ public:
     using Indices = std::make_index_sequence<num_params - 3>;
       run_wrap_(Indices{});
   };
+
+  ~AsyncWorkCCLWrap()
+  {
+    for(auto& req : reqs) {
+      if (req != null_req)
+      {
+        std::cerr << "attempted destruction of WorkCCL before work has completed, "
+                  << "terminating the program."
+                  << std::endl;
+        std::terminate();
+      }
+    }
+  }
+
+  bool isCompleted() override
+  {
+    for(auto& req : reqs) {
+      if (req == null_req) {
+        continue;
+      }
+
+      bool flag;
+
+      CCL_CHECK(flag = req.test());
+
+      if (flag)
+      {
+//      req.reset();
+        req.operator=(ccl::communicator::coll_request_t());
+      }
+      else {
+        return false;
+      }
+    }
+    inputs.clear();
+    // all request has been finished
+    return true;
+  }
+
+  bool isSuccess() const override
+  {
+    for(auto& req : reqs) {
+      if (req != null_req) {
+        throw std::runtime_error(
+          "invalid call to WorkCCL::isSuccess before work has completed");
+      }
+    }
+    return true;
+  }
+
+  bool wait() override
+  {
+    for(auto& req : reqs) {
+      if (req == null_req) {
+        continue;
+      }
+
+      RECORD_FUNCTION(std::string("pg::wait::") + debugName, std::vector<c10::IValue>());
+
+      CCL_CHECK(req.wait());
+      //    req.reset();
+      req.operator=(ccl::communicator::coll_request_t());
+    }
+    inputs.clear();
+    // Always return true, because abort API is not implemented.
+    return true;
+  }
+
+  void abort() override
+  {
+    TORCH_CHECK(false, "ProcessGroupCCL::WorkCCL::abort not implemented");
+  }
 
 private:
 

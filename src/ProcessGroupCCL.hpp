@@ -65,14 +65,7 @@ public:
     AsyncWorkCCL(const std::vector<at::Tensor>& inputs,
                  const std::vector<at::Tensor>& outputs) : inputs(inputs), outputs(outputs) {};
 
-    bool isCompleted() override;
-    bool isSuccess() const override;
-    bool wait() override;
-    void abort() override;
-
     virtual void run() = 0;
-
-    ~AsyncWorkCCL();
 
     std::vector<at::Tensor>& getOutputTensors()
     {
@@ -91,7 +84,6 @@ public:
 //    }
 
   public:
-    ccl::communicator::coll_request_t req;
     /*
         keep copy of tensors to increment tensor reference counters
         while CCL operation is in progress
