@@ -156,13 +156,13 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> DPCPPCCLStubs::allreduce_(std::ve
       ccl::communicator::coll_request_t ret_req;
 
       CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "allreduce", [&] {
-        CCL_CHECK(ret_req = comm.allreduce(
+        ret_req = comm.allreduce(
           input.data_ptr<scalar_t>(),
           output.data_ptr<scalar_t>(),
           (size_t)count,
           cclOps.at(opts.reduceOp),
           stream,
-          attr));
+          attr);
     });
     return ret_req;
   });
@@ -195,12 +195,12 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> DPCPPCCLStubs::broadcast_(std::ve
       ccl::communicator::coll_request_t ret_req;
 
       CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "broadcast", [&] {
-          CCL_CHECK(ret_req = comm.broadcast(
+          ret_req = comm.broadcast(
             input.data_ptr<scalar_t>(),
             (size_t)count,
             root,
             stream,
-            attr));
+            attr);
       });
       return ret_req;
     });

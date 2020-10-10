@@ -74,13 +74,14 @@ public:
 
 private:
 
-
   template <std::size_t...INDEX>
   void run_wrap_(std::index_sequence<INDEX...>) {
-    req = f(inputs[0], outputs[0], comms.comms[0], comms.streams[INDEX]...);
+    for (size_t i = 0; i < inputs.size(); i++) {
+      CCL_CHECK(reqs.push_back(f(inputs[i], outputs[i], comms.comms[i], comms.streams[i + INDEX]...)));
+    }
   }
 
-
+  std::vector<ccl::communicator::coll_request_t> reqs;
   RunF f;
   CommType& comms;
 };

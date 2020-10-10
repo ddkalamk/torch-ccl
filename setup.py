@@ -1,6 +1,7 @@
 # DEBUG build with debug
 
 # USE_DPCPP -  build the torch_ccl library support the sycl
+# USE_SYSTEM_ONECCL -  build the torch_ccl library support the sycl
 
 import os
 import pathlib
@@ -162,8 +163,7 @@ class CMakeExtension(Extension):
 
 
     def run(self, args, env):
-        "Executes cmake with arguments and an environment."
-
+        """Executes cmake with arguments and an environment."""
         command = [self._cmake_command] + args
         print(' '.join(command))
         check_call(command, cwd=self.build_dir, env=env)
@@ -260,11 +260,10 @@ class BuildCMakeExt(build_ext):
         self.announce("Building binaries", level=3)
 
         max_jobs = os.getenv('MAX_JOBS', str(multiprocessing.cpu_count()))
-        build_args = [
-            '--target', 'install', '--', '-j', max_jobs
-        ]
+        build_args = ['-j', max_jobs]
 
-        self.spawn(['cmake', '--build', str(build_dir)] + build_args)
+        check_call(['make', 'torch_ccl'] + build_args, cwd=str(build_dir), env=my_env)
+        check_call(['make', 'install'], cwd=str(build_dir), env=my_env)
 
 
 class Clean(clean):
@@ -292,21 +291,23 @@ class Clean(clean):
 
 if __name__ == '__main__':
   build_deps()
-  modules = [CMakeExtension("libtorch_ccl_dpcpp", "./CMakeLists.txt", runtime='dpcpp')]
-  # modules = [CMakeExtension("libtorch_ccl", "./CMakeLists.txt", runtime='native')]
+  # modules = [CMakeExtension("libtorch_ccl_dpcpp", "./CMakeLists.txt", runtime='dpcpp')]
+  modules = [CMakeExtension("libtorch_ccl", "./CMakeLists.txt", runtime='native')]
   #
   # if build_dpcpp:
   #     dpcpp_home = _find_dpcpp_home()
   #     if dpcpp_home:
   #       modules.append(CMakeExtension("libtorch_ccl_dpcpp", "./CMakeLists.txt", runtime='dpcpp'))
   setup(
-      name=package_name,
+      name='torch_ccl',
       version=version,
       ext_modules=modules,
       packages=['torch_ccl'],
       package_data={
           'torch_ccl': [
               '*.py',
+              '*/*.h',
+              '*/*.hpp',
               'lib/*.so*',
               ]},
       cmdclass={

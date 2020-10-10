@@ -443,11 +443,11 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allreduce_(std::vecto
           ccl::communicator& comm){
             RECORD_FUNCTION("torch_ccl::cpu::allreduce", std::vector<c10::IValue>{input});
             ccl::communicator::coll_request_t ret_req;
-            CCL_CHECK(ret_req = comm.allreduce(input.data_ptr(),
+            ret_req = comm.allreduce(input.data_ptr(),
                                        output.data_ptr(),
                                        (size_t)input.numel(),
                                        cclDatatypes.at(input.scalar_type()),
-                                       cclOps.at(opts.reduceOp)));
+                                       cclOps.at(opts.reduceOp));
             return ret_req;
           });
 
@@ -476,7 +476,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allreduce_(std::vecto
             attr.set<ccl::sparse_allreduce_attr_id::fn_ctx>(static_cast<const void*>(work.get()));
             attr.set<ccl::sparse_allreduce_attr_id::coalesce_mode>(sparseCoalesceMode);
 
-            CCL_CHECK(ret_req = comm.sparse_allreduce(indices.data_ptr(),
+            ret_req = comm.sparse_allreduce(indices.data_ptr(),
                                                   (size_t)indices.numel(),
                                                   values.data_ptr(),
                                                   (size_t)values.numel(),
@@ -484,7 +484,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allreduce_(std::vecto
                                                   cclDatatypes.at(indices.scalar_type()),
                                                   cclDatatypes.at(values.scalar_type()),
                                                   cclOps.at(opts.reduceOp),
-                                                  attr));
+                                                  attr);
             return ret_req;
       });
   }
@@ -507,12 +507,12 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::reduce_(std::vector<a
        ccl::communicator& comm) {
          RECORD_FUNCTION("torch_ccl::cpu::reduce", std::vector<c10::IValue>{input});
          ccl::communicator::coll_request_t ret_req;
-         CCL_CHECK(ret_req = comm.reduce(input.data_ptr(),
+         ret_req = comm.reduce(input.data_ptr(),
                                          input.data_ptr(),
                                          (size_t)input.numel(),
                                          cclDatatypes.at(input.scalar_type()),
                                          cclOps.at(opts.reduceOp),
-                                         (size_t)opts.rootRank));
+                                         (size_t)opts.rootRank);
          return ret_req;
     });
 
@@ -535,10 +535,10 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::broadcast_(std::vecto
        ccl::communicator& comm) {
       RECORD_FUNCTION("torch_ccl::cpu::broadcast", std::vector<c10::IValue>{input});
       ccl::communicator::coll_request_t ret_req;
-      CCL_CHECK(ret_req = comm.broadcast(input.data_ptr(),
+      ret_req = comm.broadcast(input.data_ptr(),
                                      (size_t)input.numel(),
                                      cclDatatypes.at(input.scalar_type()),
-                                     (size_t)opts.rootRank));
+                                     (size_t)opts.rootRank);
       return ret_req;
     });
 
@@ -593,12 +593,12 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allgather_(std::vecto
         auto &env = ccl::environment::instance();
         auto attr = env.create_operation_attr<ccl::allgatherv_attr>();
         attr.set<ccl::allgatherv_attr_id::vector_buf>(flatRes.isFlat ? 0 : 1);
-        CCL_CHECK(ret_req = comm.allgatherv(input.data_ptr(),
+        ret_req = comm.allgatherv(input.data_ptr(),
                                             (size_t)input.numel(),
                                             recvBuf,
                                             recvCounts,
                                             cclDatatypes.at(input.scalar_type()),
-                                            attr));
+                                            attr);
       }
 
       return ret_req;

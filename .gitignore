@@ -24,6 +24,11 @@
 
 torch_ccl/include/
 torch_ccl/lib/
+torch_ccl/bin/
+torch_ccl/etc/
+torch_ccl/examples/
+torch_ccl/licensing/
+torch_ccl/modulefiles/
 torch_ccl/version.py
 
 # Root level file used in CI to specify certain env configs.
