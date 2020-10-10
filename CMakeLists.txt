@@ -3,6 +3,7 @@ project(torch_ccl)
 set(CMAKE_CXX_STANDARD 17)
 # Find modules.
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules)
+set(CMAKE_SKIP_INSTALL_ALL_DEPENDENCY true)
 
 IF(COMPUTE_RUNTIME STREQUAL "dpcpp")
     include(cmake/DPCPP.cmake)
@@ -99,7 +100,7 @@ target_link_libraries(torch_ccl PRIVATE ${DEPENDS_LIB})
 target_link_libraries(torch_ccl PRIVATE libtorch_python.so)
 target_link_libraries(torch_ccl PRIVATE ${IPEX_LIBRARY_DIRS}/torch_ipex.so)
 
-install(TARGETS torch_ccl ccl LIBRARY DESTINATION lib)
+install(TARGETS torch_ccl LIBRARY DESTINATION lib)
 
 function (print_configuration_summary)
     get_directory_property(CMAKE_COMPILE_DEFINITIONS DIRECTORY ${CMAKE_SOURCE_DIR} COMPILE_DEFINITIONS)
