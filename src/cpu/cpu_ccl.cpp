@@ -236,7 +236,7 @@ private:
       // Reuse the cached communicator if there is one.
       return *ccl_comms[pg_ccl.processGroupID_];
     }
-    auto comms = std::make_shared<CPUComms>(pg_ccl.getSize(), pg_ccl.getRank(), pg_ccl.kvs);
+    auto comms = std::make_shared<CPUComms>(pg_ccl.getRank(), pg_ccl.getSize(), pg_ccl.kvs);
     ccl_comms.emplace(pg_ccl.processGroupID_, comms);
 
     return *ccl_comms[pg_ccl.processGroupID_];

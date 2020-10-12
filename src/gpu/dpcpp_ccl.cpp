@@ -80,11 +80,11 @@ std::vector<at::Device> get_device_list(const std::vector<std::vector<at::Tensor
 
 } //namespace anonymous
 
-using GPUComms =  torch_ccl::CCLCommsCollector<ccl::device_communicator>;
-
 class DPCPPCCLStubs final: public DispatchStub {
 
 public:
+  using GPUComms =  torch_ccl::CCLCommsCollector<ccl::device_communicator>;
+
   DPCPPCCLStubs() {}
 
   bool enabled() override {
@@ -119,7 +119,7 @@ private:
       // Reuse the cached communicator if there is one.
       return *ccl_comms[pg_ccl.processGroupID_];
     }
-    auto comms = std::make_shared<GPUComms>(pg_ccl.getSize(), pg_ccl.getRank(), pg_ccl.kvs);
+    auto comms = std::make_shared<GPUComms>(pg_ccl.getRank(), pg_ccl.getSize(), pg_ccl.kvs);
     ccl_comms.emplace(pg_ccl.processGroupID_, comms);
 
     return *ccl_comms[pg_ccl.processGroupID_];
