@@ -55,7 +55,8 @@ const int64_t ProcessGroupCCL::OP_TIMEOUT_MILLIS = 10 * 1000;
 
 void ProcessGroupCCL::cclFini()
 {
-    std::unique_lock<std::mutex> globalLock(globalMutex);
+  std::cout << "cclFini " << std::endl;
+  DispatchStub::reset_all();
 }
 
 void ProcessGroupCCL::cclInitOnce()
@@ -121,6 +122,8 @@ ProcessGroupCCL::ProcessGroupCCL(const std::shared_ptr<Store>& store, int rank, 
 
 ProcessGroupCCL::~ProcessGroupCCL()
 {
+  std::cout << "Destroy the outstanding work here " << std::endl;
+  std::cout << "Destroy the related comm here " << std::endl;
 }
 
 std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::broadcast(

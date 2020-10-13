@@ -186,8 +186,6 @@ class CMakeExtension(Extension):
         # Store build options that are directly stored in environment variables
         build_options = {
             # The default value cannot be easily obtained in CMakeLists.txt. We set it here.
-            # 'CMAKE_PREFIX_PATH': distutils.sysconfig.get_python_lib()
-            'CMAKE_BUILD_TYPE': 'Debug' if self.debug else 'Release',
             'CMAKE_INSTALL_PREFIX': install_prefix,
             'PYTHON_INCLUDE_DIRS': str(distutils.sysconfig.get_python_inc()),
             'PYTORCH_INCLUDE_DIRS': convert_cmake_dirs(include_paths()),
@@ -265,7 +263,8 @@ class BuildCMakeExt(build_ext):
         build_args = ['-j', max_jobs]
 
         check_call(['make', 'torch_ccl'] + build_args, cwd=str(build_dir), env=my_env)
-        check_call(['make', 'torch_ccl_dpcpp'] + build_args, cwd=str(build_dir), env=my_env)
+        if extension.runtime == "dpcpp":
+            check_call(['make', 'torch_ccl_dpcpp'] + build_args, cwd=str(build_dir), env=my_env)
         check_call(['make', 'install'], cwd=str(build_dir), env=my_env)
 
 

@@ -40,7 +40,7 @@ public:
   // The Communicators used by CCL
   ccl::vector_class<CommType> comms;
   // The steams used by CCL
-  std::vector<ccl::stream> streams;
+  ccl::vector_class<ccl::stream> streams;
 };
 
 template <typename CCLCommType>

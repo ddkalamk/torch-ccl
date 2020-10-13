@@ -51,8 +51,6 @@ std::string get_key_from_devs(const std::vector<at::Device>& devices);
 // Get the list of devices from list of tensors
 std::vector<at::Device> get_device_list(const std::vector<at::Tensor>& tensors);
 
-static ccl::communicator::coll_request_t null_req;
-
 template <typename RunF, typename CommType>
 class AsyncWorkCCLWrap : public ProcessGroupCCL::AsyncWorkCCL {
 public:
@@ -72,7 +70,7 @@ public:
   ~AsyncWorkCCLWrap()
   {
     for(auto& req : reqs) {
-      if (req != null_req)
+      if (!req)
       {
         std::cerr << "attempted destruction of WorkCCL before work has completed, "
                   << "terminating the program."
@@ -85,51 +83,29 @@ public:
   bool isCompleted() override
   {
     for(auto& req : reqs) {
-      if (req == null_req) {
-        continue;
-      }
-
       bool flag;
 
       CCL_CHECK(flag = req.test());
 
-      if (flag)
-      {
-//      req.reset();
-        req.operator=(ccl::communicator::coll_request_t());
-      }
-      else {
+      if (!flag) {
         return false;
       }
     }
-    inputs.clear();
     // all request has been finished
     return true;
   }
 
   bool isSuccess() const override
   {
-    for(auto& req : reqs) {
-      if (req != null_req) {
-        throw std::runtime_error(
-          "invalid call to WorkCCL::isSuccess before work has completed");
-      }
-    }
-    return true;
+    throw std::runtime_error(
+      "invalid call to ::isSuccess.");
   }
 
   bool wait() override
   {
     for(auto& req : reqs) {
-      if (req == null_req) {
-        continue;
-      }
-
       CCL_CHECK(req.wait());
-      //    req.reset();
-      req.operator=(ccl::communicator::coll_request_t());
     }
-    inputs.clear();
     // Always return true, because abort API is not implemented.
     return true;
   }
@@ -143,8 +119,13 @@ private:
 
   template <std::size_t...INDEX>
   void run_wrap_(std::index_sequence<INDEX...>) {
-    for (size_t i = 0; i < inputs.size(); i++) {
-      CCL_CHECK(reqs.push_back(f(inputs[i], outputs[i], comms.comms[i], comms.streams[i + INDEX]...)));
+    if (reqs.empty()) {
+      for (size_t i = 0; i < inputs.size(); i++) {
+        CCL_CHECK(reqs.push_back(f(inputs[i], outputs[i], comms.comms[i], comms.streams[i + INDEX]...)));
+      }
+    }
+    else {
+      // add warning for re run the ccl work
     }
   }
 

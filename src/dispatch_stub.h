@@ -53,6 +53,12 @@ public:
     return stubs_[to_int(dev_type)]->allgather_(outputTensors, inputTensors, opts, pg_ccl);
   }
 
+  static void reset_all() {
+    for(auto stub: stubs_) {
+      stub->reset();
+    }
+  }
+
   virtual ~DispatchStub() {};
 
   static void register_ccl_stub(c10::DeviceType devoce_type, DispatchStub* stub);
@@ -86,6 +92,8 @@ protected:
     fail(tensors[0].device().type(), "broadcast");
     return nullptr;
   }
+
+  virtual void reset() {};
 
 private:
   static DispatchStub* stubs_[static_cast<std::underlying_type<c10::DeviceType>::type>(c10::DeviceType::COMPILE_TIME_MAX_DEVICE_TYPES)];
