@@ -5,6 +5,7 @@
 #include <ProcessGroupCCL.hpp>
 #include <dispatch_stub.h>
 #include <utils.h>
+#include <common/comm/host_communicator/host_communicator.hpp>
 
 namespace torch_ccl
 {
@@ -44,16 +45,6 @@ std::map<at::ScalarType, ccl::datatype> cclDatatypes =
     {at::kFloat, ccl::datatype::float32},
 //    {at::kInt, ccl::datatype::int64},
     {at::kLong, ccl::datatype::int64}
-  };
-
-std::map<ccl_datatype_t, at::ScalarType> ptDatatypes =
-  {
-    {ccl_dtype_char, at::kByte},
-    {ccl_dtype_int, at::kInt},
-    {ccl_dtype_bfp16, at::kBFloat16},
-    {ccl_dtype_float, at::kFloat},
-    {ccl_dtype_double, at::kDouble},
-    {ccl_dtype_int64, at::kLong}
   };
 #endif
 
@@ -301,7 +292,7 @@ void sparseAllreduceCompletionFn(
   const auto valueShape = inputTensor.sizes().slice(inputTensor.sparse_dim());
   auto resultValueShape = std::vector<int64_t>({(int64_t)indCount});
   std::copy(valueShape.begin(), valueShape.end(), std::back_inserter(resultValueShape));
-
+#if 0
   auto rawIndices = at::from_blob((void*)indBuf,
                                   {1, (long int)indCount},
                                   ptDatatypes.at(static_cast<int>(indDatatype)));
@@ -309,15 +300,17 @@ void sparseAllreduceCompletionFn(
   auto rawValues = at::from_blob((void*)valBuf,
                                  resultValueShape,
                                  ptDatatypes.at(static_cast<int>(valDatatype)));
+#endif
 
   auto indices = at::empty({1, (long int)indCount}, inputTensor._indices().options());
 
   auto values = at::empty(resultValueShape,
                           inputTensor._values().options());
 
+#if 0
   indices.copy_(rawIndices);
   values.copy_(rawValues);
-
+#endif
   /*int64_t* indPtr = indices.data_ptr<int64_t>();
   for (size_t idx = 0; idx < indCount; idx++)
   {
@@ -443,15 +436,21 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allreduce_(std::vecto
           ccl::communicator& comm){
             RECORD_FUNCTION("torch_ccl::cpu::allreduce", std::vector<c10::IValue>{input});
             ccl::communicator::coll_request_t ret_req;
-            ret_req = comm.allreduce(input.data_ptr(),
-                                       output.data_ptr(),
-                                       (size_t)input.numel(),
-                                       cclDatatypes.at(input.scalar_type()),
-                                       cclOps.at(opts.reduceOp));
+            auto attr = ccl::create_operation_attr<ccl::allreduce_attr>();
+
+            CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "allreduce", [&] {
+              ret_req = ccl::allreduce(input.data_ptr<scalar_t>(),
+                                       output.data_ptr<scalar_t>(),
+                                       (size_t) input.numel(),
+                                       comm,
+                                       attr);
+            });
+
             return ret_req;
           });
 
   } else if (layout == c10::kSparse) {
+#if 0
     work = collective(
       get_comms_collector(pg_ccl),
       tensors,
@@ -487,6 +486,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allreduce_(std::vecto
                                                   attr);
             return ret_req;
       });
+#endif
   }
 
   return work;
@@ -507,12 +507,14 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::reduce_(std::vector<a
        ccl::communicator& comm) {
          RECORD_FUNCTION("torch_ccl::cpu::reduce", std::vector<c10::IValue>{input});
          ccl::communicator::coll_request_t ret_req;
+#if 0
          ret_req = comm.reduce(input.data_ptr(),
                                          input.data_ptr(),
                                          (size_t)input.numel(),
                                          cclDatatypes.at(input.scalar_type()),
                                          cclOps.at(opts.reduceOp),
                                          (size_t)opts.rootRank);
+#endif
          return ret_req;
     });
 
@@ -526,6 +528,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::broadcast_(std::vecto
   checkSingleTensor(tensors);
 
   std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> work;
+#if 0
   work = collective(
     get_comms_collector(pg_ccl),
     tensors,
@@ -541,7 +544,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::broadcast_(std::vecto
                                      (size_t)opts.rootRank);
       return ret_req;
     });
-
+#endif
   return work;
 }
 
@@ -590,15 +593,17 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allgather_(std::vecto
 
       ccl::communicator::coll_request_t ret_req;
       {
-        auto &env = ccl::environment::instance();
+#if 0
+        auto &env = ccl::details::environment::instance();
         auto attr = env.create_operation_attr<ccl::allgatherv_attr>();
-        attr.set<ccl::allgatherv_attr_id::vector_buf>(flatRes.isFlat ? 0 : 1);
+        attr.set<ccl::allgatherv_attr_id::>(flatRes.isFlat ? 0 : 1);
         ret_req = comm.allgatherv(input.data_ptr(),
                                             (size_t)input.numel(),
                                             recvBuf,
                                             recvCounts,
                                             cclDatatypes.at(input.scalar_type()),
                                             attr);
+#endif
       }
 
       return ret_req;

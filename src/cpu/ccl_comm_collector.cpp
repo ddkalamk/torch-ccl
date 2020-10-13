@@ -42,7 +42,7 @@ CCLCommsCollector<ccl::communicator>::get_ccl_comms(const std::string& devices_k
     return *cpu_comms_ptr.get();
   }
   ccl::vector_class<ccl::communicator> cpu_comms;
-  cpu_comms.emplace_back(ccl::environment::instance().create_communicator(size_, rank_, kvs_));
+  cpu_comms.emplace_back(ccl::details::environment::instance().create_communicator(size_, rank_, kvs_));
   std::vector<ccl::stream> cpu_streams = {ccl::default_stream};
   cpu_comms_ptr = std::make_shared<CCLCommsCollector<ccl::communicator>::CommsType>(cpu_comms, cpu_streams);
   set_ccl_comms(devices_key, cpu_comms_ptr);

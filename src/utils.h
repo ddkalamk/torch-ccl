@@ -14,11 +14,6 @@
     try {                                                            \
         cmd;                                                         \
     }                                                                \
-    catch (ccl::ccl_error& e) {                                      \
-        throw std::runtime_error("CCL error in: " +                  \
-            std::string(__FILE__) + ":" + std::to_string(__LINE__) + \
-            ", with error message: " + e.what());                    \
-    }                                                                \
     catch (std::runtime_error& e) {                                  \
       throw e;                                                       \
     }                                                                \
@@ -34,9 +29,9 @@
     /* don't use TYPE again in case it is an expensive or side-effect op */  \
     at::ScalarType _st = ::detail::scalar_type(the_type);                    \
     switch (_st) {                                                           \
-      /*AT_PRIVATE_CASE_TYPE(at::ScalarType::Char, char, __VA_ARGS__)*/          \
-      AT_PRIVATE_CASE_TYPE(at::ScalarType::Int, int, __VA_ARGS__)       \
-      AT_PRIVATE_CASE_TYPE(at::ScalarType::Long, int64_t, __VA_ARGS__)       \
+      /*AT_PRIVATE_CASE_TYPE(at::ScalarType::Char, char, __VA_ARGS__)*/      \
+      /*AT_PRIVATE_CASE_TYPE(at::ScalarType::Int, int, __VA_ARGS__)*/        \
+      /*AT_PRIVATE_CASE_TYPE(at::ScalarType::Long, int64_t, __VA_ARGS__)*/   \
       AT_PRIVATE_CASE_TYPE(at::ScalarType::Float, float, __VA_ARGS__)        \
       AT_PRIVATE_CASE_TYPE(at::ScalarType::Double, double, __VA_ARGS__)      \
       default:                                                               \

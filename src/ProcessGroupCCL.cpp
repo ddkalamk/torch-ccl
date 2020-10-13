@@ -63,7 +63,7 @@ void ProcessGroupCCL::cclInitOnce()
     std::call_once(cclInitOnceFlag, []() {
 
       /* create CCL environment at once */
-      auto &env = ccl::environment::instance();
+      auto &env = ccl::details::environment::instance();
       (void)env;
 
       if (std::atexit(ProcessGroupCCL::cclFini))
@@ -94,7 +94,7 @@ ProcessGroupCCL::ProcessGroupCCL(const std::shared_ptr<Store>& store, int rank, 
 
         // Rank 0 writes to the store as bcast
         if (rank == 0) {
-          kvs = ccl::environment::instance().create_main_kvs();
+          kvs = ccl::details::environment::instance().create_main_kvs();
           ccl::kvs::address_type main_addr = kvs->get_address();
           auto ccl_kvs_addr = std::vector<uint8_t>(main_addr.begin(), main_addr.end());
           printf("torch ccl rank %d, send kvs addr\n", rank);
@@ -112,7 +112,7 @@ ProcessGroupCCL::ProcessGroupCCL(const std::shared_ptr<Store>& store, int rank, 
           std::copy_n(std::make_move_iterator(ccl_kvs_addr.begin()),
                       ccl::kvs::address_max_size,
                       main_addr.begin());
-          kvs = ccl::environment::instance().create_kvs(main_addr);
+          kvs = ccl::details::environment::instance().create_kvs(main_addr);
         }
         return kvs;
       }())
