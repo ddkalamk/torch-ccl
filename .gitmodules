@@ -1,4 +1,4 @@
 [submodule "third_party/oneCCL"]
 	path = third_party/oneCCL
-	url = ssh://git@gitlab.devtools.intel.com:29418/chengjun/oneccl.git
+	url = ssh://git@gitlab.devtools.intel.com:29418/ict/ccl-team/ccl.git
 	branch = new_api
