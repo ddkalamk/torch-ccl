@@ -130,8 +130,6 @@ public:
         continue;
       }
 
-      RECORD_FUNCTION(std::string("pg::wait::") + debugName, std::vector<c10::IValue>());
-
       CCL_CHECK(req.wait());
       //    req.reset();
       req.operator=(ccl::communicator::coll_request_t());

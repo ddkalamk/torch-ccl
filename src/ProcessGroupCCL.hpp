@@ -41,8 +41,7 @@
 #include <c10d/Store.hpp>
 #include <c10d/Types.hpp>
 #include <c10d/Utils.hpp>
-#include <oneapi/ccl.hpp>
-#include "ccl_comm_collector.h"
+#include <ccl_comm_collector.h>
 
 namespace c10d {
 

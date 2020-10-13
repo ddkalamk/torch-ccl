@@ -11,15 +11,10 @@ from subprocess import check_call, check_output
 from tools.env import _find_dpcpp_home, BUILD_DIR
 
 from torch.utils.cpp_extension import include_paths, library_paths
-from torch_ipex import include_paths as ipex_include_paths
-from torch_ipex import library_paths as ipex_library_paths
 from setuptools import setup, Extension, distutils, find_packages
 from setuptools.command.build_ext import build_ext
 from distutils.command.clean import clean
 from distutils.version import LooseVersion
-
-
-
 
 def check_env_flag(name, default=''):
     return os.getenv(name, default).upper() in ['ON', '1', 'YES', 'TRUE', 'Y']
@@ -111,13 +106,17 @@ class CMakeExtension(Extension):
     """CMake extension"""
 
 
-    def __init__(self, name, cmake_file, runtime='native'):
+    def __init__(self, name, cmake_file):
         super().__init__(name, [])
         self.build_dir = None
         self.cmake_file = cmake_file
-        self.runtime = runtime
         self.debug = True
         self._cmake_command = CMakeExtension._get_cmake_command()
+        self.runtime='native'
+        if build_dpcpp:
+            dpcpp_home = _find_dpcpp_home()
+            if dpcpp_home:
+                self.runtime='dpcpp'
 
     @staticmethod
     def _get_version(cmd):
@@ -193,8 +192,6 @@ class CMakeExtension(Extension):
             'PYTHON_INCLUDE_DIRS': str(distutils.sysconfig.get_python_inc()),
             'PYTORCH_INCLUDE_DIRS': convert_cmake_dirs(include_paths()),
             'PYTORCH_LIBRARY_DIRS': convert_cmake_dirs(library_paths()),
-            'IPEX_INCLUDE_DIRS': convert_cmake_dirs(ipex_include_paths()),
-            'IPEX_LIBRARY_DIRS': convert_cmake_dirs(ipex_library_paths()),
             'LIB_NAME': python_lib,
         }
 
@@ -204,8 +201,13 @@ class CMakeExtension(Extension):
 
         if self.runtime == "dpcpp":
             build_options['COMPUTE_RUNTIME'] = str(self.runtime)
+            from torch_ipex import include_paths as ipex_include_paths
+            from torch_ipex import library_paths as ipex_library_paths
+            build_options['IPEX_INCLUDE_DIRS'] = convert_cmake_dirs(ipex_include_paths())
+            build_options['IPEX_LIBRARY_DIRS'] = convert_cmake_dirs(ipex_library_paths())
         elif self.runtime == "native:":
             pass
+
         cc, cxx = _get_complier(self.runtime)
         defines(cmake_args, CMAKE_C_COMPILER=cc)
         defines(cmake_args, CMAKE_CXX_COMPILER=cxx)
@@ -263,6 +265,7 @@ class BuildCMakeExt(build_ext):
         build_args = ['-j', max_jobs]
 
         check_call(['make', 'torch_ccl'] + build_args, cwd=str(build_dir), env=my_env)
+        check_call(['make', 'torch_ccl_dpcpp'] + build_args, cwd=str(build_dir), env=my_env)
         check_call(['make', 'install'], cwd=str(build_dir), env=my_env)
 
 
@@ -291,13 +294,7 @@ class Clean(clean):
 
 if __name__ == '__main__':
   build_deps()
-  # modules = [CMakeExtension("libtorch_ccl_dpcpp", "./CMakeLists.txt", runtime='dpcpp')]
-  modules = [CMakeExtension("libtorch_ccl", "./CMakeLists.txt", runtime='native')]
-  #
-  # if build_dpcpp:
-  #     dpcpp_home = _find_dpcpp_home()
-  #     if dpcpp_home:
-  #       modules.append(CMakeExtension("libtorch_ccl_dpcpp", "./CMakeLists.txt", runtime='dpcpp'))
+  modules = [CMakeExtension("libtorch_ccl", "./CMakeLists.txt")]
   setup(
       name='torch_ccl',
       version=version,

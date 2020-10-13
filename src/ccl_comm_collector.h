@@ -7,6 +7,7 @@
 
 #include <c10/core/Device.h>
 #include <oneapi/ccl.hpp>
+#include <unordered_map>
 
 namespace torch_ccl {
 

@@ -21,20 +21,16 @@ ADD_SUBDIRECTORY(${ONECCL_ROOT} )
 IF(NOT TARGET ccl)
     MESSAGE(FATAL_ERROR "Failed to include oneDNN target")
 ENDIF()
-#SET(ONECCL_LIBRARIES ccl-static)
-SET(ONECCL_LIBRARIES ccl)
 GET_TARGET_PROPERTY(INCLUDE_DIRS ccl INCLUDE_DIRECTORIES)
 SET(ONECCL_INCLUDE_DIR ${INCLUDE_DIRS})
 
-find_library(MPI_LIBRARY mpi PATHS ${PROJECT_SOURCE_DIR}/third_party/oneCCL/mpi/lib)
 add_library(mpi SHARED IMPORTED)
-set_target_properties(mpi PROPERTIES IMPORTED_LOCATION "${MPI_LIBRARY}")
+set_target_properties(mpi PROPERTIES IMPORTED_LOCATION ${PROJECT_SOURCE_DIR}/third_party/oneCCL/mpi/lib/libmpi.so)
 
-get_target_property(LOCATION mpi IMPORTED_LOCATION)
 
 add_library(fabric SHARED IMPORTED)
-find_library(FABRIC_LIBRARY fabric PATHS ${PROJECT_SOURCE_DIR}/third_party/oneCCL/ofi/lib)
-set_target_properties(fabric PROPERTIES IMPORTED_LOCATION "${FABRIC_LIBRARY}")
+set_target_properties(fabric PROPERTIES IMPORTED_LOCATION ${PROJECT_SOURCE_DIR}/third_party/oneCCL/ofi/lib/libfabric.so)
 
+SET(ONECCL_LIBRARIES ccl fabric mpi)
 
 ENDIF(NOT ONECCL_FOUND)
