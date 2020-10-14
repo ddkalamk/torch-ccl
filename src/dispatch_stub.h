@@ -53,15 +53,23 @@ public:
     return stubs_[to_int(dev_type)]->allgather_(outputTensors, inputTensors, opts, pg_ccl);
   }
    
-  static std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> alltoall_base(
-                                                                 at::Tensor& outputTensor,
-                                                                 at::Tensor& inputTensor,
-                                                                 std::vector<int64_t>& outputSplitSizes,
-                                                                 std::vector<int64_t>& inputSplitSizes,
+  static std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> alltoall_base(at::Tensor& outputTensor,
+                                                                      at::Tensor& inputTensor,
+                                                                      std::vector<int64_t>& outputSplitSizes,
+                                                                      std::vector<int64_t>& inputSplitSizes,
+                                                                      const AllToAllOptions& opts,
+                                                                      ProcessGroupCCL& pg_ccl) {
+    c10::DeviceType dev_type = inputTensor.device().type();
+    return stubs_[to_int(dev_type)]->alltoall_base_(outputTensor, inputTensor, outputSplitSizes, inputSplitSizes, opts, pg_ccl);
+  }
+  
+  static std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> alltoall(std::vector<at::Tensor>& outputTensors,
+                                                                 std::vector<at::Tensor>& inputTensors,
                                                                  const AllToAllOptions& opts,
                                                                  ProcessGroupCCL& pg_ccl) {
-    c10::DeviceType dev_type = inputTensor[0].device().type();
-    return stubs_[to_int(dev_type)]->alltoall_base_(outputTensor, inputTensor, outputSplitSizes, inputSplitSizes, opts, pg_ccl);
+    c10::DeviceType dev_type = inputTensors[0].device().type();
+    return stubs_[to_int(dev_type)]->alltoall_(outputTensors, inputTensors, opts, pg_ccl);
+
   }
 
 
@@ -105,16 +113,24 @@ protected:
     return nullptr;
   }
 
-  virtual std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> alltoall_base_(
-                                                                 at::Tensor& outputTensor,
-                                                                 at::Tensor& inputTensor,
-                                                                 std::vector<int64_t>& outputSplitSizes,
-                                                                 std::vector<int64_t>& inputSplitSizes,
-                                                                 const AllToAllOptions& opts,
-                                                                 ProcessGroupCCL& pg_ccl) {
+  virtual std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> alltoall_base_(at::Tensor& outputTensor,
+                                                                        at::Tensor& inputTensor,
+                                                                        std::vector<int64_t>& outputSplitSizes,
+                                                                        std::vector<int64_t>& inputSplitSizes,
+                                                                        const AllToAllOptions& opts,
+                                                                        ProcessGroupCCL& pg_ccl) {
     fail(inputTensor[0].device().type(), "alltoall_base");
     return nullptr;
   }
+
+  virtual std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> alltoall_(std::vector<at::Tensor>& outputTensors,
+                                                                   std::vector<at::Tensor>& inputTensors,
+                                                                   const AllToAllOptions& opts,
+                                                                   ProcessGroupCCL& pg_ccl) {
+    fail(inputTensors[0].device().type(), "alltoall");
+    return nullptr;
+  }
+
 
   virtual void reset() {};
 

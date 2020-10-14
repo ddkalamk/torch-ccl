@@ -227,7 +227,10 @@ protected:
                                                                std::vector<int64_t>& inputSplitSizes,
                                                                const AllToAllOptions& opts,
                                                                ProcessGroupCCL& pg_ccl) override;
-
+  std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> alltoall_(std::vector<at::Tensor>& outputTensors,
+                                                             std::vector<at::Tensor>& inputTensors,
+                                                             const AllToAllOptions& opts,
+                                                             ProcessGroupCCL& pg_ccl) override;
   void reset() override {
     ccl_comms.clear();
   }
@@ -710,6 +713,101 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::alltoall_base_(at::Te
   }
   return work;
 }
+
+std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::alltoall_(std::vector<at::Tensor>& outputTensors,
+                                                             std::vector<at::Tensor>& inputTensors,
+                                                             const AllToAllOptions& opts,
+                                                             ProcessGroupCCL& pg_ccl){
+  std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> work;
+  auto grp_size = pg_ccl.getSize();
+
+  RECORD_FUNCTION("torch_ccl::cpu::alltoall", std::vector<c10::IValue>());
+
+  TORCH_CHECK(inputTensors.size() == (size_t)grp_size,
+      "alltoall: number of input tensors are not equal to group size");
+
+  TORCH_CHECK(outputTensors.size() == (size_t)grp_size,
+      "alltoall: number of output tensors are not equal to group size");
+
+  checkSameType(outputTensors[0], inputTensors);
+  checkSameType(inputTensors[0], outputTensors);
+
+  std::vector<size_t> sendCounts(grp_size);
+  std::vector<size_t> recvCounts(grp_size);
+
+  at::Tensor flatInput;
+  at::Tensor flatOutput;
+
+  int64_t flatSendCount;
+  int64_t flatRecvCount;
+
+  bool isInputFlat =
+      computeLengthsAndCheckAndGetFlat(inputTensors, sendCounts, flatInput, flatSendCount);
+
+  bool isOutputFlat =
+      computeLengthsAndCheckAndGetFlat(outputTensors, recvCounts, flatOutput, flatRecvCount);
+  
+  if (!isInputFlat)
+  {
+      auto flatInputSplits =
+          flatInput.split_with_sizes(c10::IntArrayRef((int64_t*)sendCounts.data(),
+                                     sendCounts.size()), 0);
+
+      for (int i = 0; i < grp_size; i++)
+      {
+          flatInputSplits[i].copy_(inputTensors[i].view({-1}));
+      }
+  }
+  std::vector<at::Tensor> flatInputs {flatInput};
+  std::vector<at::Tensor> flatOutputs {flatOutput};
+  work = collective(
+      get_comms_collector(pg_ccl),
+      flatInputs,
+      flatOutputs,
+      [=](at::Tensor input,
+          at::Tensor output,
+          ccl::communicator& comm) {
+            ccl::communicator::coll_request_t ret_req;
+            CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "alltoall", [&] {
+              auto attr = ccl::create_operation_attr<ccl::alltoallv_attr>();
+              ret_req = ccl::alltoallv(input.data_ptr<scalar_t>(),
+                                       sendCounts,
+                                       output.data_ptr<scalar_t>(),
+                                       recvCounts,
+                                       cclDatatypes.at(output.scalar_type()),
+                                       comm,
+                                       attr);
+              });
+
+            return ret_req;
+          });
+ 
+  std::vector<at::Tensor> a2aTensors;
+
+  if (!isOutputFlat)
+  {
+      work->run();
+      work->wait();
+
+      auto flatOutputSplits =
+          flatOutput.split_with_sizes(c10::IntArrayRef((int64_t*)recvCounts.data(),
+                                      recvCounts.size()), 0);
+
+      for (int i = 0; i < grp_size; i++)
+      {
+          outputTensors[i].view({-1}).copy_(flatOutputSplits[i]);
+      }
+  }
+  else
+  {
+      a2aTensors.emplace_back(flatOutput);
+      a2aTensors.emplace_back(flatInput);
+  }
+
+
+  return work;
+}
+
 RegisterCPUPMethods cpu_register;
 
 } // namespace c10d

@@ -399,83 +399,11 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::alltoall(
     std::vector<at::Tensor>& inputTensors,
     const AllToAllOptions& opts)
 {
-#if 0
-    RECORD_FUNCTION("pg::alltoall", std::vector<c10::IValue>());
+    auto work = DispatchStub::alltoall(outputTensors, inputTensors, opts, *this);
+    // sync run
+    work->run();
+    return work;
 
-    TORCH_CHECK(inputTensors.size() == (size_t)size_,
-        "alltoall: number of input tensors are not equal to group size");
-
-    TORCH_CHECK(outputTensors.size() == (size_t)size_,
-        "alltoall: number of output tensors are not equal to group size");
-
-    checkSameType(outputTensors[0], inputTensors);
-    checkSameType(inputTensors[0], outputTensors);
-
-    std::vector<size_t> sendCounts(size_);
-    std::vector<size_t> recvCounts(size_);
-
-    at::Tensor flatInput;
-    at::Tensor flatOutput;
-
-    int64_t flatSendCount;
-    int64_t flatRecvCount;
-
-    bool isInputFlat =
-        computeLengthsAndCheckAndGetFlat(inputTensors, sendCounts, flatInput, flatSendCount);
-
-    bool isOutputFlat =
-        computeLengthsAndCheckAndGetFlat(outputTensors, recvCounts, flatOutput, flatRecvCount);
-
-    if (!isInputFlat)
-    {
-        auto flatInputSplits =
-            flatInput.split_with_sizes(c10::IntArrayRef((int64_t*)sendCounts.data(),
-                                       sendCounts.size()), 0);
-
-        for (int i = 0; i < size_; i++)
-        {
-            flatInputSplits[i].copy_(inputTensors[i].view({-1}));
-        }
-    }
-
-    std::shared_ptr<ccl::request> req;
-
-    {
-        std::unique_lock<std::mutex> globalLock(globalMutex);
-        CCL_CHECK(req = comm.alltoallv(flatInput.data_ptr(),
-                                        sendCounts,
-                                        flatOutput.data_ptr(),
-                                        recvCounts,
-                                        cclDatatypes.at(flatOutput.scalar_type())));
-    }
-
-    std::vector<at::Tensor> a2aTensors;
-
-    if (!isOutputFlat)
-    {
-        req->wait();
-
-        auto flatOutputSplits =
-            flatOutput.split_with_sizes(c10::IntArrayRef((int64_t*)recvCounts.data(),
-                                        recvCounts.size()), 0);
-
-        for (int i = 0; i < size_; i++)
-        {
-            outputTensors[i].view({-1}).copy_(flatOutputSplits[i]);
-        }
-    }
-    else
-    {
-        a2aTensors.emplace_back(flatOutput);
-        a2aTensors.emplace_back(flatInput);
-    }
-
-    std::string debugName = std::string("alltoall::sz:") +
-        std::to_string((flatSendCount + flatRecvCount) / (2 * size_));
-
-    return std::make_shared<ProcessGroupCCL::WorkCCL>(req, std::move(a2aTensors), std::move(debugName));
-#endif
-  TORCH_CHECK(false, "ProcessGroupCCL does not support send");
 }
 
 std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::send(
