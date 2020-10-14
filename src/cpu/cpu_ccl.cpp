@@ -221,6 +221,13 @@ protected:
                                                             std::vector<at::Tensor>& inputTensors,
                                                             const AllgatherOptions& opts,
                                                             ProcessGroupCCL& pg_ccl) override;
+  std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> alltoall_base_(at::Tensor& outputTensor,
+                                                               at::Tensor& inputTensor,
+                                                               std::vector<int64_t>& outputSplitSizes,
+                                                               std::vector<int64_t>& inputSplitSizes,
+                                                               const AllToAllOptions& opts,
+                                                               ProcessGroupCCL& pg_ccl) override;
+
   void reset() override {
     ccl_comms.clear();
   }
@@ -613,6 +620,96 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allgather_(std::vecto
   return work;
 }
 
+std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::alltoall_base_(at::Tensor& outputTensor,
+                                                             at::Tensor& inputTensor,
+                                                             std::vector<int64_t>& outputSplitSizes,
+                                                             std::vector<int64_t>& inputSplitSizes,
+                                                             const AllToAllOptions& opts,
+                                                             ProcessGroupCCL& pg_ccl){
+  RECORD_FUNCTION("torch_ccl::cpu::alltoall_base", std::vector<c10::IValue>({inputTensor, outputTensor}));
+ 
+  checkSingleTensorHelper(inputTensor);
+  checkSingleTensorHelper(outputTensor);
+ 
+  std::vector<at::Tensor> inputs{inputTensor};
+  std::vector<at::Tensor> outputs{outputTensor};
+  auto grp_size = pg_ccl.getSize(); 
+  std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> work;
+  if (outputSplitSizes.size() == 0 && inputSplitSizes.size() == 0){
+    TORCH_CHECK(outputTensor.numel() == inputTensor.numel() &&
+        outputTensor.scalar_type() == inputTensor.scalar_type(),
+        "alltoall_base: tensors are not equal in size or data type");
+
+    TORCH_CHECK(outputTensor.size(0) % grp_size == 0,
+        "alltoall_base: tensor's dim 0 does not divide equally across group size");
+    RECORD_FUNCTION("torch_ccl::cpu::alltoall_base", std::vector<c10::IValue>{inputTensor});
+    work = collective(
+      get_comms_collector(pg_ccl),
+      inputs,
+      outputs,
+      [=](at::Tensor input,
+          at::Tensor output,
+          ccl::communicator& comm) {
+            ccl::communicator::coll_request_t ret_req;
+            CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "alltoall_base", [&] {
+              auto attr = ccl::create_operation_attr<ccl::alltoall_attr>();
+              ret_req = ccl::alltoall(input.data_ptr<scalar_t>(),
+                                      output.data_ptr<scalar_t>(),
+                                      (size_t)output.numel() / comm.size(),
+                                      cclDatatypes.at(output.scalar_type()),
+                                      comm,
+                                      attr);
+              });
+            
+            return ret_req;
+          });
+
+  }
+  
+  else{
+    // Need alltoallv
+    checkSplitSizes(inputSplitSizes, inputTensor, grp_size);
+    checkSplitSizes(outputSplitSizes, outputTensor, grp_size);
+
+    std::vector<size_t> sendCounts(grp_size);
+    std::vector<size_t> recvCounts(grp_size);
+    
+    bool inputSplitsEqual = inputSplitSizes.size() == 0;
+    bool outputSplitsEqual = outputSplitSizes.size() == 0;
+
+    size_t inLen = inputTensor.numel();
+    size_t outLen = outputTensor.numel();
+    if (inLen) inLen /= (inputSplitsEqual ? grp_size : inputTensor.size(0));
+    if (outLen) outLen /= (outputSplitsEqual ? grp_size : outputTensor.size(0));
+
+    for (int i = 0; i < grp_size; i++)
+    {
+        sendCounts[i] = (inputSplitsEqual ? inLen : inputSplitSizes[i] * inLen);
+        recvCounts[i] = (outputSplitsEqual ? outLen : outputSplitSizes[i] * outLen);
+    }
+    work = collective(
+      get_comms_collector(pg_ccl),
+      inputs,
+      outputs,
+      [=](at::Tensor input,
+          at::Tensor output,
+          ccl::communicator& comm) {
+          ccl::communicator::coll_request_t ret_req;
+          auto attr = ccl::create_operation_attr<ccl::alltoallv_attr>();
+          CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "alltoall_base", [&] {
+          ret_req = ccl::alltoallv(input.data_ptr<scalar_t>(),
+                                  sendCounts,
+                                  output.data_ptr<scalar_t>(),
+                                  recvCounts,
+                                  cclDatatypes.at(output.scalar_type()),
+                                  comm,
+                                  attr);
+          });
+          return ret_req;
+    });
+  }
+  return work;
+}
 RegisterCPUPMethods cpu_register;
 
 } // namespace c10d

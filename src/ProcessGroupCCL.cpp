@@ -387,74 +387,11 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::alltoall_base(
     std::vector<int64_t>& inputSplitSizes,
     const AllToAllOptions& opts)
 {
-#if 0
-    RECORD_FUNCTION("pg::alltoall_base", std::vector<c10::IValue>({inputTensor, outputTensor}));
-
-    checkSingleTensorHelper(inputTensor);
-    checkSingleTensorHelper(outputTensor);
-
-    std::shared_ptr<ccl::request> req;
-
-    if (outputSplitSizes.size() == 0 && inputSplitSizes.size() == 0)
-    {
-        // We can use alltoall
-        TORCH_CHECK(outputTensor.numel() == inputTensor.numel() &&
-                    outputTensor.scalar_type() == inputTensor.scalar_type(),
-                    "alltoall_base: tensors are not equal in size or data type");
-
-        TORCH_CHECK(outputTensor.size(0) % size_ == 0,
-            "alltoall_base: tensor's dim 0 does not divide equally across group size");
-
-        {
-            std::unique_lock<std::mutex> globalLock(globalMutex);
-            CCL_CHECK(req = comm.alltoall(inputTensor.data_ptr(),
-                                           outputTensor.data_ptr(),
-                                           (size_t)outputTensor.numel() / comm.size(),
-                                           cclDatatypes.at(outputTensor.scalar_type())));
-        }
-    }
-    else
-    {
-        // Need alltoallv
-        checkSplitSizes(inputSplitSizes, inputTensor, size_);
-        checkSplitSizes(outputSplitSizes, outputTensor, size_);
-
-        std::vector<size_t> sendCounts(size_);
-        std::vector<size_t> recvCounts(size_);
-
-        // inLen or outLen can be 0 so we need explicit flag
-        bool inputSplitsEqual = inputSplitSizes.size() == 0;
-        bool outputSplitsEqual = outputSplitSizes.size() == 0;
-
-        size_t inLen = inputTensor.numel();
-        size_t outLen = outputTensor.numel();
-        if (inLen) inLen /= (inputSplitsEqual ? size_ : inputTensor.size(0));
-        if (outLen) outLen /= (outputSplitsEqual ? size_ : outputTensor.size(0));
-
-        for (int i = 0; i < size_; i++)
-        {
-            sendCounts[i] = (inputSplitsEqual ? inLen : inputSplitSizes[i] * inLen);
-            recvCounts[i] = (outputSplitsEqual ? outLen : outputSplitSizes[i] * outLen);
-        }
-
-        {
-            std::unique_lock<std::mutex> globalLock(globalMutex);
-            CCL_CHECK(req = comm.alltoallv(inputTensor.data_ptr(),
-                                            sendCounts,
-                                            outputTensor.data_ptr(),
-                                            recvCounts,
-                                            cclDatatypes.at(outputTensor.scalar_type())));
-        }
-    }
-
-    auto a2aTensors = std::vector<at::Tensor> { inputTensor, outputTensor };
-    std::string debugName = std::string("alltoall_base::sz:") +
-        std::to_string((inputTensor.numel() + outputTensor.numel()) / (2 * size_));
-
-    return std::make_shared<ProcessGroupCCL::WorkCCL>(req, std::move(a2aTensors), std::move(debugName));
-#endif
-
-  TORCH_CHECK(false, "ProcessGroupCCL does not support reduce_scatter");
+    auto work = DispatchStub::alltoall_base(outputTensor, inputTensor, outputSplitSizes, inputSplitSizes, opts, *this);
+    // sync run
+    work->run();
+    return work;
+  
 }
 
 std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::alltoall(
