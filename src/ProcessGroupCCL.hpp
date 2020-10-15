@@ -61,20 +61,9 @@ public:
 
   class AsyncWorkCCL : public ProcessGroup::Work {
   public:
-    AsyncWorkCCL(const std::vector<at::Tensor>& inputs,
-                 const std::vector<at::Tensor>& outputs) : inputs(inputs), outputs(outputs) {};
+    AsyncWorkCCL() : Work() {};
 
     virtual void run() = 0;
-
-    std::vector<at::Tensor>& getOutputTensors()
-    {
-      return outputs;
-    }
-
-    std::vector<at::Tensor>& getInputTensors()
-    {
-      return inputs;
-    }
 
 //    std::vector<at::Tensor> result() const override
 //    {
@@ -83,12 +72,6 @@ public:
 //    }
 
   public:
-    /*
-        keep copy of tensors to increment tensor reference counters
-        while CCL operation is in progress
-    */
-    std::vector<at::Tensor> inputs;
-    std::vector<at::Tensor> outputs;
 
     std::string debugName;
 

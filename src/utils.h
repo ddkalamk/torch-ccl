@@ -51,16 +51,16 @@ std::string get_key_from_devs(const std::vector<at::Device>& devices);
 // Get the list of devices from list of tensors
 std::vector<at::Device> get_device_list(const std::vector<at::Tensor>& tensors);
 
-template <typename RunF, typename CommType>
+template <typename RunF, typename CommType, typename InputType, typename OutputType>
 class AsyncWorkCCLWrap : public ProcessGroupCCL::AsyncWorkCCL {
 public:
   using traits = function_traits<RunF>;
   static constexpr int num_params = traits::arity;
 
-  AsyncWorkCCLWrap(const std::vector<at::Tensor>& inputs,
-               const std::vector<at::Tensor>& outputs,
+  AsyncWorkCCLWrap(const std::vector<InputType>& inputs,
+               const std::vector<OutputType>& outputs,
                const RunF f,
-               CommType& comms) : AsyncWorkCCL(inputs, outputs), f(f), comms(comms) {}
+               CommType& comms) : AsyncWorkCCL(), f(f), comms(comms), inputs(inputs), outputs(outputs) {}
 
   void run() override {
     using Indices = std::make_index_sequence<num_params - 3>;
@@ -115,6 +115,16 @@ public:
     TORCH_CHECK(false, "ProcessGroupCCL::WorkCCL::abort not implemented");
   }
 
+//  std::vector<OutputType>& getOutputTensors()
+//  {
+//    return outputs;
+//  }
+//
+//  std::vector<InputType>& getInputTensors()
+//  {
+//    return inputs;
+//  }
+
 private:
 
   template <std::size_t...INDEX>
@@ -129,18 +139,24 @@ private:
     }
   }
 
-  std::vector<ccl::communicator::coll_request_t> reqs;
   RunF f;
   CommType& comms;
+  /*
+      keep copy of tensors to increment tensor reference counters
+      while CCL operation is in progress
+  */
+  std::vector<InputType> inputs;
+  std::vector<OutputType> outputs;
+  std::vector<ccl::communicator::coll_request_t> reqs;
 };
 
-template <typename RunF, typename CommType>
-std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> make_work_ccl(const std::vector<at::Tensor>& inputs,
-                                                             const std::vector<at::Tensor>& outputs,
+template <typename RunF, typename CommType, typename InputType, typename OutputType>
+std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> make_work_ccl(const std::vector<InputType>& inputs,
+                                                             const std::vector<OutputType>& outputs,
                                                              RunF f,
                                                              CommType& comms) {
   std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> ret_ptr;
-  ret_ptr.reset(new AsyncWorkCCLWrap<RunF, CommType>(inputs, outputs, f, comms));
+  ret_ptr.reset(new AsyncWorkCCLWrap<RunF, CommType, InputType, OutputType>(inputs, outputs, f, comms));
   return ret_ptr;
 }
 
