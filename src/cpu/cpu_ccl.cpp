@@ -273,7 +273,7 @@ struct RegisterCPUPMethods {
     DispatchStub::register_ccl_stub(c10::DeviceType::CPU, &methods);
   }
 };
-
+#if 0
 void sparseAllreduceCompletionFn(
   const void* indBuf, size_t indCount, ccl::datatype indDatatype,
   const void* valBuf, size_t valCount, ccl::datatype valDatatype,
@@ -431,7 +431,7 @@ void sparseAllreduceAllocFn(
 
   return ;
 }
-
+#endif
 std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allreduce_(std::vector<at::Tensor>& tensors,
                                                                       const AllreduceOptions& opts,
                                                                       ProcessGroupCCL& pg_ccl) {
