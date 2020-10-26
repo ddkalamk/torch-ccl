@@ -473,6 +473,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allreduce_(std::vecto
       tensors,
       [=](at::Tensor input,
           at::Tensor output,
+          ccl::sparse_allreduce_attr attr,
           ccl::communicator& comm){
             RECORD_FUNCTION("torch_ccl::cpu::sparse_allreduce", std::vector<c10::IValue>{input});
             ccl::communicator::coll_request_t ret_req;
@@ -481,9 +482,6 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allreduce_(std::vecto
             auto indices = input._indices();
             auto values = input._values();
 
-            auto &env = ccl::environment::instance();
-            auto attr = env.create_operation_attr<ccl::sparse_allreduce_attr>();
-
             if (sparseResultMode == SparseResultMode::DIRECT)
               attr.set<ccl::sparse_allreduce_attr_id::alloc_fn>(static_cast<ccl::sparse_allreduce_alloc_fn>(sparseAllreduceAllocFn));
             else
@@ -491,7 +489,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allreduce_(std::vecto
             attr.set<ccl::sparse_allreduce_attr_id::fn_ctx>(static_cast<const void*>(work.get()));
             attr.set<ccl::sparse_allreduce_attr_id::coalesce_mode>(sparseCoalesceMode);
 
-            ret_req = comm.sparse_allreduce(indices.data_ptr(),
+            ret_req = ccl::preview::sparse_allreduce(indices.data_ptr(),
                                                   (size_t)indices.numel(),
                                                   values.data_ptr(),
                                                   (size_t)values.numel(),
@@ -769,10 +767,10 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::alltoall_(std::vector
       flatOutputs,
       [=](at::Tensor input,
           at::Tensor output,
+          ccl::alltoallv_attr attr,
           ccl::communicator& comm) {
             ccl::communicator::coll_request_t ret_req;
             CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "alltoall", [&] {
-              auto attr = ccl::create_operation_attr<ccl::alltoallv_attr>();
               ret_req = ccl::alltoallv(input.data_ptr<scalar_t>(),
                                        sendCounts,
                                        output.data_ptr<scalar_t>(),

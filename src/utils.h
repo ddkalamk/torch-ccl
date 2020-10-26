@@ -8,6 +8,7 @@
 #include "ProcessGroupCCL.hpp"
 #include <ATen/detail/FunctionTraits.h>
 #include <c10d/Types.hpp>
+#include <oneapi/ccl/ccl_coll_attr_ids.hpp>
 
 #define CCL_CHECK(cmd)                                               \
   do {                                                               \
@@ -156,8 +157,26 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> make_work_ccl(const std::vector<I
   ret_ptr.reset(new AsyncWorkCCLWrap<RunF, CommType, InputType, OutputType, attr_t>(inputs, outputs, f, comms, attr));
   return ret_ptr;
 }
+#if 0
+class callback_context {
+  virtual void run_hook() = 0;
+}
 
-void prologue_wrap(const void* in_buf,
+template<typename RunF>
+class cpu_callback : public callback_context {
+  virtual void run_hook() {
+    actural_run();
+  };
+
+  private:
+    void actural_run() {
+      f();
+    }
+
+  RunF f;
+}
+#endif
+extern void prologue_wrap(const void* in_buf,
                     size_t in_count,
                     ccl::datatype in_dtype,
                     void** out_buf,
@@ -165,7 +184,7 @@ void prologue_wrap(const void* in_buf,
                     ccl::datatype* out_dtype,
                     const ccl::fn_context* context);
 
-void epilogue_wrap(const void* in_buf,
+extern void epilogue_wrap(const void* in_buf,
                     size_t in_count,
                     ccl::datatype in_dtype,
                     void* out_buf,
@@ -183,14 +202,13 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> collective(
   post_process post) {
   using traits = function_traits<fn>;
   using attr_t = typename traits::template arg<2>::type;
-  auto attr = ccl::create_operation_attr<attr_t>();
+  attr_t attr = ccl::create_operation_attr<attr_t>();
+  attr.template set<ccl::operation_attr_id::prologue_fn>((ccl::prologue_fn)prologue_wrap);
+  attr.template set<ccl::operation_attr_id::epilogue_fn>((ccl::epilogue_fn)epilogue_wrap);
 
   const auto devices = get_device_list(inputs);
   const auto key = get_key_from_devs(devices);
   auto& comms = ccl_comms.get_ccl_comms(key, devices);
-
-//  attr.set<ccl::operation_attr_id::prologue_fn>((ccl::prologue_fn)prologue_wrap);
-//  attr.set<ccl::operation_attr_id::epilogue_fn>((ccl::epilogue_fn)epilogue_wrap);
   // First let CCL streams wait for computing kernel on the input tensors's finished.
 //  syncStreams(devices, comms_collector->gpu_streams);
 
