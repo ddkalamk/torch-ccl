@@ -17,11 +17,7 @@
     catch (std::runtime_error& e) {                                  \
       throw e;                                                       \
     }                                                                \
-    catch (...) {                                                    \
-        throw std::runtime_error("unknown error in: " +              \
-            std::string(__FILE__) + ":" + std::to_string(__LINE__)); \
-    }                                                                \
-  } while (0)
+  }while(0)
 
 #define CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(TYPE, NAME, ...)                          \
   [&] {                                                                      \
@@ -51,7 +47,7 @@ std::string get_key_from_devs(const std::vector<at::Device>& devices);
 // Get the list of devices from list of tensors
 std::vector<at::Device> get_device_list(const std::vector<at::Tensor>& tensors);
 
-template <typename RunF, typename CommType, typename InputType, typename OutputType>
+template <typename RunF, typename CommType, typename InputType, typename OutputType, typename attr_t>
 class AsyncWorkCCLWrap : public ProcessGroupCCL::AsyncWorkCCL {
 public:
   using traits = function_traits<RunF>;
@@ -60,23 +56,21 @@ public:
   AsyncWorkCCLWrap(const std::vector<InputType>& inputs,
                const std::vector<OutputType>& outputs,
                const RunF f,
-               CommType& comms) : AsyncWorkCCL(), f(f), comms(comms), inputs(inputs), outputs(outputs) {}
+               CommType& comms,
+               attr_t& attr) : AsyncWorkCCL(), f(f), comms(comms), attr(attr), inputs(inputs), outputs(outputs), reqs{} {}
 
   void run() override {
-    using Indices = std::make_index_sequence<num_params - 3>;
+    using Indices = std::make_index_sequence<num_params - 4>;
       run_wrap_(Indices{});
   };
 
   ~AsyncWorkCCLWrap()
   {
-    for(auto& req : reqs) {
-      if (!req)
-      {
-        std::cerr << "attempted destruction of WorkCCL before work has completed, "
-                  << "terminating the program."
-                  << std::endl;
-        std::terminate();
-      }
+    if (!reqs.empty()) {
+      std::cerr << "attempted destruction of WorkCCL before work has completed, "
+                << "terminating the program."
+                << std::endl;
+      std::terminate();
     }
   }
 
@@ -106,6 +100,7 @@ public:
     for(auto& req : reqs) {
       CCL_CHECK(req.wait());
     }
+    reqs.clear();
     // Always return true, because abort API is not implemented.
     return true;
   }
@@ -131,7 +126,7 @@ private:
   void run_wrap_(std::index_sequence<INDEX...>) {
     if (reqs.empty()) {
       for (size_t i = 0; i < inputs.size(); i++) {
-        CCL_CHECK(reqs.push_back(f(inputs[i], outputs[i], comms.comms[i], comms.streams[i + INDEX]...)));
+        CCL_CHECK(reqs.push_back(f(inputs[i], outputs[i], attr, comms.comms[i], comms.streams[i + INDEX]...)));
       }
     }
     else {
@@ -141,6 +136,7 @@ private:
 
   RunF f;
   CommType& comms;
+  attr_t attr;
   /*
       keep copy of tensors to increment tensor reference counters
       while CCL operation is in progress
@@ -150,15 +146,32 @@ private:
   std::vector<ccl::communicator::coll_request_t> reqs;
 };
 
-template <typename RunF, typename CommType, typename InputType, typename OutputType>
+template <typename RunF, typename CommType, typename InputType, typename OutputType, typename attr_t>
 std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> make_work_ccl(const std::vector<InputType>& inputs,
                                                              const std::vector<OutputType>& outputs,
                                                              RunF f,
-                                                             CommType& comms) {
+                                                             CommType& comms,
+                                                             attr_t& attr) {
   std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> ret_ptr;
-  ret_ptr.reset(new AsyncWorkCCLWrap<RunF, CommType, InputType, OutputType>(inputs, outputs, f, comms));
+  ret_ptr.reset(new AsyncWorkCCLWrap<RunF, CommType, InputType, OutputType, attr_t>(inputs, outputs, f, comms, attr));
   return ret_ptr;
 }
+
+void prologue_wrap(const void* in_buf,
+                    size_t in_count,
+                    ccl::datatype in_dtype,
+                    void** out_buf,
+                    size_t* out_count,
+                    ccl::datatype* out_dtype,
+                    const ccl::fn_context* context);
+
+void epilogue_wrap(const void* in_buf,
+                    size_t in_count,
+                    ccl::datatype in_dtype,
+                    void* out_buf,
+                    size_t* out_count,
+                    ccl::datatype* out_dtype,
+                    const ccl::fn_context* context);
 
 template <typename comm_t, typename fn, typename pre_process, typename post_process, typename input_t, typename output_t>
 std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> collective(
@@ -169,24 +182,22 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> collective(
   pre_process pre,
   post_process post) {
   using traits = function_traits<fn>;
+  using attr_t = typename traits::template arg<2>::type;
+  auto attr = ccl::create_operation_attr<attr_t>();
 
   const auto devices = get_device_list(inputs);
   const auto key = get_key_from_devs(devices);
   auto& comms = ccl_comms.get_ccl_comms(key, devices);
 
+//  attr.set<ccl::operation_attr_id::prologue_fn>((ccl::prologue_fn)prologue_wrap);
+//  attr.set<ccl::operation_attr_id::epilogue_fn>((ccl::epilogue_fn)epilogue_wrap);
   // First let CCL streams wait for computing kernel on the input tensors's finished.
 //  syncStreams(devices, comms_collector->gpu_streams);
-
-  // Work itself will create the CUDA events on all GPUs of tensors
 
 //  pre(gpu_streams[key]);
 
   std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> work;
-  work = make_work_ccl(inputs, outputs, fun, comms);
-//  for (size_t i = 0; i < inputs.size(); ++i) {
-//    auto req = fun(inputs[i], outputs[i], comms_collector.gpu_comms[i], comms_collector.gpu_streams[i]);
-//    work->requests_[i] = std::move(req);
-//  }
+  work = make_work_ccl(inputs, outputs, fun, comms, attr);
 
 //  post(gpu_streams[key]);
 

@@ -6,6 +6,7 @@
 #include <dispatch_stub.h>
 #include <utils.h>
 #include <common/comm/host_communicator/host_communicator.hpp>
+#include "ccl_cpu.h"
 
 namespace torch_ccl
 {
@@ -192,7 +193,7 @@ bool computeLengthsAndCheckAndGetFlat(
 
 class VanillaCPU final: public DispatchStub {
 public:
-  using CPUComms =  torch_ccl::CCLCommsCollector<ccl::communicator>;
+  using CPUComms =  torch_ccl::CCLCommsCollector<CPU>;
 
   VanillaCPU() {}
 
@@ -447,12 +448,12 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allreduce_(std::vecto
       tensors,
       [=](at::Tensor input,
           at::Tensor output,
+          ccl::allreduce_attr attr,
           ccl::communicator& comm){
             RECORD_FUNCTION("torch_ccl::cpu::allreduce", std::vector<c10::IValue>{input});
             ccl::communicator::coll_request_t ret_req;
-            auto attr = ccl::create_operation_attr<ccl::allreduce_attr>();
 
-            CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "allreduce", [&] {
+            CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "torch_ccl::cpu::allreduce", [&] {
               ret_req = ccl::allreduce(input.data_ptr<scalar_t>(),
                                        output.data_ptr<scalar_t>(),
                                        (size_t) input.numel(),
@@ -518,8 +519,9 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::reduce_(std::vector<a
     tensors,
     tensors,
     [=](at::Tensor input,
-       at::Tensor output,
-       ccl::communicator& comm) {
+        at::Tensor output,
+        ccl::reduce_attr attr,
+        ccl::communicator& comm) {
          RECORD_FUNCTION("torch_ccl::cpu::reduce", std::vector<c10::IValue>{input});
          ccl::communicator::coll_request_t ret_req;
 #if 0
@@ -548,18 +550,19 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::broadcast_(std::vecto
     tensors,
     tensors,
     [=](at::Tensor input,
-       at::Tensor /*output*/,
-       ccl::communicator& comm) {
-      RECORD_FUNCTION("torch_ccl::cpu::broadcast", std::vector<c10::IValue>{input});
-      ccl::communicator::coll_request_t ret_req;
+        at::Tensor /*output*/,
+        ccl::broadcast_attr attr,
+        ccl::communicator& comm) {
+          RECORD_FUNCTION("torch_ccl::cpu::broadcast", std::vector<c10::IValue>{input});
+          ccl::communicator::coll_request_t ret_req;
 
-      CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "allreduce", [&] {
-        ret_req = ccl::broadcast(input.data_ptr<scalar_t>(),
-                                 (size_t) input.numel(),
-                                 (size_t) opts.rootRank,
-                                 comm);
-      });
-      return ret_req;
+          CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "torch_ccl::cpu::broadcast", [&] {
+            ret_req = ccl::broadcast(input.data_ptr<scalar_t>(),
+                                     (size_t) input.numel(),
+                                     (size_t) opts.rootRank,
+                                     comm);
+          });
+          return ret_req;
     });
   return work;
 }
@@ -582,6 +585,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allgather_(std::vecto
     outputTensors,
     [=](at::Tensor input,
         std::vector<at::Tensor>& outputs,
+        ccl::allgatherv_attr attr,
         ccl::communicator& comm) {
         RECORD_FUNCTION("torch_ccl::cpu::allgather", std::vector<c10::IValue>({input}));
 
@@ -651,10 +655,10 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::alltoall_base_(at::Te
       outputs,
       [=](at::Tensor input,
           at::Tensor output,
+          ccl::alltoall_attr attr,
           ccl::communicator& comm) {
             ccl::communicator::coll_request_t ret_req;
             CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "alltoall_base", [&] {
-              auto attr = ccl::create_operation_attr<ccl::alltoall_attr>();
               ret_req = ccl::alltoall(input.data_ptr<scalar_t>(),
                                       output.data_ptr<scalar_t>(),
                                       (size_t)output.numel() / comm.size(),
@@ -695,9 +699,9 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::alltoall_base_(at::Te
       outputs,
       [=](at::Tensor input,
           at::Tensor output,
+          ccl::alltoallv_attr attr,
           ccl::communicator& comm) {
           ccl::communicator::coll_request_t ret_req;
-          auto attr = ccl::create_operation_attr<ccl::alltoallv_attr>();
           CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "alltoall_base", [&] {
           ret_req = ccl::alltoallv(input.data_ptr<scalar_t>(),
                                   sendCounts,

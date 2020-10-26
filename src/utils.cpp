@@ -39,4 +39,24 @@ std::vector<at::Device> get_device_list(const std::vector<at::Tensor>& tensors) 
   return res;
 }
 
+void prologue_wrap(const void* in_buf,
+                    size_t in_count,
+                    ccl::datatype in_dtype,
+                    void** out_buf,
+                    size_t* out_count,
+                    ccl::datatype* out_dtype,
+                    const ccl::fn_context* context) {
+}
+
+
+void epilogue_wrap(const void* in_buf,
+                    size_t in_count,
+                    ccl::datatype in_dtype,
+                    void* out_buf,
+                    size_t* out_count,
+                    ccl::datatype* out_dtype,
+                    const ccl::fn_context* context) {
+
+}
+
 }
