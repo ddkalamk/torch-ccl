@@ -7,28 +7,9 @@
 #include <core/Context.h>
 
 namespace torch_ccl {
-
 template <>
-std::shared_ptr<CCLCommsCollector<ccl::device_communicator>::CommsType>
-CCLCommsCollector<ccl::device_communicator>::get_ccl_comms(const std::string& devices_key) {
-  if (comms_map.find(devices_key) != comms_map.end()) {
-    // Reuse the cached communicator if there is one.
-    return comms_map[devices_key];
-  }
-  else {
-    return nullptr;
-  }
-}
-
-template <>
-void CCLCommsCollector<ccl::device_communicator>::set_ccl_comms(const std::string& devices_key,
-                                                                std::shared_ptr<CCLCommsCollector<ccl::device_communicator>::CommsType>& cpu_comms) {
-  comms_map.emplace(devices_key, cpu_comms);
-}
-
-template <>
-CCLCommsCollector<ccl::device_communicator>::CommsType&
-CCLCommsCollector<ccl::device_communicator>::get_ccl_comms(const std::string& devices_key, const std::vector<at::Device>& devices) {
+Comms&
+CCLCommsCollector<class DPCPP>::get_ccl_comms(const std::string& devices_key, const std::vector<at::Device>& devices) {
   // Sanity check
   if (devices_key.empty()) {
     throw std::runtime_error(
@@ -39,7 +20,7 @@ CCLCommsCollector<ccl::device_communicator>::get_ccl_comms(const std::string& de
 //  for (auto& device : devices) {
 //    used_gpu_device_idxs.insert(device.index());
 //  }
-  std::shared_ptr<CCLCommsCollector<ccl::device_communicator>::CommsType> gpu_comms_ptr = get_ccl_comms(devices_key);
+  std::shared_ptr<Comms> gpu_comms_ptr = get_ccl_comms_(devices_key);
   if (gpu_comms_ptr) {
     // Reuse the cached communicator if there is one.
     return *gpu_comms_ptr.get();
@@ -56,7 +37,7 @@ CCLCommsCollector<ccl::device_communicator>::get_ccl_comms(const std::string& de
   }
 
   auto ctx = at::dpcpp::getGlobalContext();
-  auto communcators = ccl::environment::instance().create_device_communicators(
+  auto communcators = ccl::create_communicators(
     size_,
     devs_rank,
     ctx,
@@ -70,13 +51,13 @@ CCLCommsCollector<ccl::device_communicator>::get_ccl_comms(const std::string& de
   for(size_t i = 0; i < devices.size(); ++i)
   {
     auto q = at::dpcpp::getCurrentDPCPPStream(devices[i].index()).dpcpp_queue();
-    ccl_streams.push_back(ccl::environment::instance().create_stream(q));
+    ccl_streams.push_back(ccl::create_stream(q));
   }
 
-  gpu_comms_ptr = std::make_shared<CCLCommsCollector<ccl::device_communicator>::CommsType>(communcators, ccl_streams);
+  gpu_comms_ptr = std::make_shared<Comms>(communcators, ccl_streams);
 
   // Move the CCL resource to cache
-  set_ccl_comms(devices_key, gpu_comms_ptr);
+  set_ccl_comms_(devices_key, gpu_comms_ptr);
 
   return *gpu_comms_ptr.get();
 }

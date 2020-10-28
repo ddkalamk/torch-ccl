@@ -203,8 +203,8 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> collective(
   using traits = function_traits<fn>;
   using attr_t = typename traits::template arg<2>::type;
   attr_t attr = ccl::create_operation_attr<attr_t>();
-  attr.template set<ccl::operation_attr_id::prologue_fn>((ccl::prologue_fn)prologue_wrap);
-  attr.template set<ccl::operation_attr_id::epilogue_fn>((ccl::epilogue_fn)epilogue_wrap);
+//  attr.template set<ccl::operation_attr_id::prologue_fn>((ccl::prologue_fn)prologue_wrap);
+//  attr.template set<ccl::operation_attr_id::epilogue_fn>((ccl::epilogue_fn)epilogue_wrap);
 
   const auto devices = get_device_list(inputs);
   const auto key = get_key_from_devs(devices);

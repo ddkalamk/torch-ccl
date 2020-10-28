@@ -83,7 +83,7 @@ std::vector<at::Device> get_device_list(const std::vector<std::vector<at::Tensor
 class DPCPPCCLStubs final: public DispatchStub {
 
 public:
-  using GPUComms =  torch_ccl::CCLCommsCollector<ccl::device_communicator>;
+  using GPUComms =  torch_ccl::CCLCommsCollector<class DPCPP>;
 
   DPCPPCCLStubs() {}
 
@@ -112,6 +112,10 @@ protected:
                                                             std::vector<at::Tensor>& inputTensors,
                                                             const AllgatherOptions& opts,
                                                             ProcessGroupCCL& pg_ccl) override;
+
+  void reset() override {
+    ccl_comms.clear();
+  }
 
 private:
   GPUComms& get_comms_colloctor(ProcessGroupCCL& pg_ccl) {
@@ -147,22 +151,17 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> DPCPPCCLStubs::allreduce_(std::ve
     tensors,
     [&](at::Tensor& input,
         at::Tensor& output,
-        ccl::device_communicator& comm,
+        ccl::allreduce_attr attr,
+        ccl::communicator& comm,
         ccl::stream& stream) {
       RECORD_FUNCTION("torch_ccl::dpcpp::allreduce", std::vector<c10::IValue>({input}));
       auto count = input.numel();
-      auto attr = ccl::environment::instance().create_operation_attr<ccl::allreduce_attr>();
 
       ccl::communicator::coll_request_t ret_req;
 
-      CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "allreduce", [&] {
-        ret_req = comm.allreduce(
-          input.data_ptr<scalar_t>(),
-          output.data_ptr<scalar_t>(),
-          (size_t)count,
-          cclOps.at(opts.reduceOp),
-          stream,
-          attr);
+      CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "torch_ccl::dpcpp::allreduce", [&] {
+        ret_req = ccl::allreduce(input.data_ptr<scalar_t>(), output.data_ptr<scalar_t>(),
+          (size_t)count, cclOps.at(opts.reduceOp), comm, stream, attr);
     });
     return ret_req;
   });
@@ -177,30 +176,23 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> DPCPPCCLStubs::reduce_(std::vecto
 std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> DPCPPCCLStubs::broadcast_(std::vector<at::Tensor>& tensors,
                                                                          const BroadcastOptions &opts,
                                                                          ProcessGroupCCL& pg_ccl) {
-  auto dev_type = check_tensors_properties(tensors);
-
   return collective(
     get_comms_colloctor(pg_ccl),
     tensors,
     tensors,
     [&](at::Tensor input,
         at::Tensor output,
-        ccl::device_communicator& comm,
+        ccl::broadcast_attr attr,
+        ccl::communicator& comm,
         ccl::stream& stream) {
       RECORD_FUNCTION("torch_ccl::dpcpp::broadcast", std::vector<c10::IValue>({input}));
       auto count = input.numel();
-      auto attr = ccl::environment::instance().create_operation_attr<ccl::broadcast_attr>();
-
       const auto root = opts.rootRank * tensors.size() + opts.rootTensor;
       ccl::communicator::coll_request_t ret_req;
 
-      CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "broadcast", [&] {
-          ret_req = comm.broadcast(
-            input.data_ptr<scalar_t>(),
-            (size_t)count,
-            root,
-            stream,
-            attr);
+      CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "torch_ccl::dpcpp::broadcast", [&] {
+          ret_req = ccl::broadcast(input.data_ptr<scalar_t>(), (size_t)count, root,
+            comm, stream, attr);
       });
       return ret_req;
     });
