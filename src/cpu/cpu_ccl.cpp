@@ -274,7 +274,46 @@ struct RegisterCPUPMethods {
     DispatchStub::register_ccl_stub(c10::DeviceType::CPU, &methods);
   }
 };
+
 #if 0
+class callback_context {
+public:
+  virtual void run_hook(
+    size_t indCount, ccl::datatype indDatatype,
+    size_t valCount, ccl::datatype valDatatype,
+    void** outIndBuf, void** outValBuf) = 0;
+};
+
+template<typename RunF>
+class cpu_callback : public callback_context {
+public:
+  cpu_callback(RunF cb): f(cb) {};
+  virtual void run_hook(
+    size_t indCount, ccl::datatype indDatatype,
+    size_t valCount, ccl::datatype valDatatype,
+    void** outIndBuf, void** outValBuf) {
+    actural_run(indCount, indDatatype, valCount, valDatatype, outIndBuf, outValBuf);
+  }
+
+private:
+    void actural_run(
+      size_t indCount, ccl::datatype indDatatype,
+      size_t valCount, ccl::datatype valDatatype,
+      void** outIndBuf, void** outValBuf) {
+      temp_buffers = f(indCount, indDatatype, valCount, valDatatype, outIndBuf, outValBuf);
+    }
+
+  RunF f;
+  at::Tensor temp_buffers;
+};
+
+template <typename RunF>
+std::shared_ptr<cpu_callback<RunF>> make_cpu_callback(RunF f) {
+  std::shared_ptr<cpu_callback<RunF>> ret_ptr;
+  ret_ptr.reset(new cpu_callback<RunF>(f));
+  return ret_ptr;
+}
+
 void sparseAllreduceCompletionFn(
   const void* indBuf, size_t indCount, ccl::datatype indDatatype,
   const void* valBuf, size_t valCount, ccl::datatype valDatatype,
@@ -290,89 +329,9 @@ void sparseAllreduceCompletionFn(
          valBuf, valCount, valDatatype,
          fnCtx); fflush(stdout);*/
 
-  ProcessGroupCCL::AsyncWorkCCL* work_cts = (ProcessGroupCCL::AsyncWorkCCL*)fnCtx;
+  callback_context* work_cts = (callback_context*)fnCtx;
+//  work_cts->run_hook(indBuf, indCount, indDatatype, valBuf, valCount, valDatatype);
 
-  std::vector<at::Tensor>& inputTensors = work_cts->getInputTensors();
-  std::vector<at::Tensor>& outputTensors = work_cts->getOutputTensors();
-
-  TORCH_CHECK(inputTensors.size() == 1, "unexpected inputTensors size");
-  TORCH_CHECK(outputTensors.size() == 0, "unexpected outputTensors size");
-
-  outputTensors.reserve(inputTensors.size());
-
-  at::Tensor& inputTensor = inputTensors[0];
-
-  TORCH_CHECK(inputTensor.sparse_dim() == 1, "unexpected sparse_dim");
-
-  const auto valueShape = inputTensor.sizes().slice(inputTensor.sparse_dim());
-  auto resultValueShape = std::vector<int64_t>({(int64_t)indCount});
-  std::copy(valueShape.begin(), valueShape.end(), std::back_inserter(resultValueShape));
-#if 0
-  auto rawIndices = at::from_blob((void*)indBuf,
-                                  {1, (long int)indCount},
-                                  ptDatatypes.at(static_cast<int>(indDatatype)));
-
-  auto rawValues = at::from_blob((void*)valBuf,
-                                 resultValueShape,
-                                 ptDatatypes.at(static_cast<int>(valDatatype)));
-#endif
-
-  auto indices = at::empty({1, (long int)indCount}, inputTensor._indices().options());
-
-  auto values = at::empty(resultValueShape,
-                          inputTensor._values().options());
-
-#if 0
-  indices.copy_(rawIndices);
-  values.copy_(rawValues);
-#endif
-  /*int64_t* indPtr = indices.data_ptr<int64_t>();
-  for (size_t idx = 0; idx < indCount; idx++)
-  {
-      printf("indices[%zu] = %ld\n", idx, indPtr[idx]);
-  }
-
-  float* valPtr = values.data_ptr<float>();
-  for (size_t idx = 0; idx < valCount; idx++)
-  {
-      printf("values[%zu] = %f\n", idx, valPtr[idx]);
-  }*/
-
-  auto resultTensor =
-    at::_sparse_coo_tensor_unsafe(indices,
-                                  values,
-                                  inputTensor.sizes(),
-                                  inputTensor.options());
-
-  if (sparseCoalesceMode != ccl::sparse_coalesce_mode::disable)
-    resultTensor._coalesced_(true);
-
-  if (sparseResultMode == SparseResultMode::COPY)
-  {
-    /* propagate result using 2 ways - inputTensors and outputTensors */
-    for (size_t i = 0; i < inputTensors.size(); i++)
-    {
-      inputTensors[i].copy_(resultTensor);
-      if (resultTensor.is_sparse())
-      {
-        outputTensors.push_back(resultTensor.clone());
-      }
-      else
-      {
-        outputTensors.push_back(resultTensor.clone(at::MemoryFormat::Contiguous));
-      }
-    }
-  }
-  else if (sparseResultMode == SparseResultMode::OOP)
-  {
-    /* propagate result using 1 way - outputTensors */
-    TORCH_CHECK(resultTensor.layout() == c10::kSparse, "unexpected tensor layout");
-    outputTensors.push_back(resultTensor);
-  }
-  else
-  {
-    TORCH_CHECK(0, "unexpected sparseResultMode ", sparseResultMode);
-  }
 
   return ;
 }
@@ -389,46 +348,8 @@ void sparseAllreduceAllocFn(
   TORCH_CHECK(sparseResultMode == SparseResultMode::DIRECT,
               "unexpected sparseResultMode ", sparseResultMode);
 
-  ProcessGroupCCL::AsyncWorkCCL* work_cts = (ProcessGroupCCL::AsyncWorkCCL*)fnCtx;
-
-  std::vector<at::Tensor>& inputTensors = work_cts->getInputTensors();
-  std::vector<at::Tensor>& outputTensors = work_cts->getOutputTensors();
-
-  TORCH_CHECK(inputTensors.size() == 1, "unexpected inputTensors size");
-  TORCH_CHECK(outputTensors.size() == 0, "unexpected outputTensors size");
-
-  outputTensors.reserve(inputTensors.size());
-
-  at::Tensor& inputTensor = inputTensors[0];
-
-  TORCH_CHECK(inputTensor.sparse_dim() == 1, "unexpected sparse_dim");
-
-  const auto valueShape = inputTensor.sizes().slice(inputTensor.sparse_dim());
-  auto resultValueShape = std::vector<int64_t>({(int64_t)indCount});
-  std::copy(valueShape.begin(), valueShape.end(), std::back_inserter(resultValueShape));
-
-  auto indices = at::empty({1, (long int)indCount}, inputTensor._indices().options());
-  auto values = at::empty(resultValueShape,
-                          inputTensor._values().options());
-
-  auto resultTensor =
-    at::_sparse_coo_tensor_unsafe(indices,
-                                  values,
-                                  inputTensor.sizes(),
-                                  inputTensor.options());
-
-  if (sparseCoalesceMode != ccl::sparse_coalesce_mode::disable)
-    resultTensor._coalesced_(true);
-
-  /* propagate result using 1 way - outputTensors */
-  TORCH_CHECK(resultTensor.layout() == c10::kSparse, "unexpected tensor layout");
-  outputTensors.push_back(resultTensor);
-
-  *outIndBuf = resultTensor._indices().data_ptr();
-  *outValBuf = resultTensor._values().data_ptr();
-
-  TORCH_CHECK(*outIndBuf, "result outIndBuf");
-  TORCH_CHECK(*outValBuf, "result outValBuf");
+  callback_context* work_cts = (callback_context*)fnCtx;
+  work_cts->run_hook(indCount, indDatatype, valCount, valDatatype, outIndBuf, outValBuf);
 
   return ;
 }
@@ -482,12 +403,50 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allreduce_(std::vecto
             auto indices = input._indices();
             auto values = input._values();
 
-            if (sparseResultMode == SparseResultMode::DIRECT)
+            if (sparseResultMode == SparseResultMode::DIRECT) {
               attr.set<ccl::sparse_allreduce_attr_id::alloc_fn>(static_cast<ccl::sparse_allreduce_alloc_fn>(sparseAllreduceAllocFn));
-            else
-              attr.set<ccl::sparse_allreduce_attr_id::completion_fn>(static_cast<ccl::sparse_allreduce_completion_fn>(sparseAllreduceCompletionFn));
-            attr.set<ccl::sparse_allreduce_attr_id::fn_ctx>(static_cast<const void*>(work.get()));
+              auto cpu_cb_ptr = make_cpu_callback(
+                [=](size_t indCount, ccl::datatype indDatatype,
+                    size_t valCount, ccl::datatype valDatatype,
+                    void** outIndBuf, void** outValBuf){
+
+                  TORCH_CHECK(input.sparse_dim() == 1, "unexpected sparse_dim");
+
+                  const auto valueShape = input.sizes().slice(input.sparse_dim());
+                  auto resultValueShape = std::vector<int64_t>({(int64_t)indCount});
+                  std::copy(valueShape.begin(), valueShape.end(), std::back_inserter(resultValueShape));
+
+                  auto indices = at::empty({1, (long int)indCount}, input._indices().options());
+                  auto values = at::empty(resultValueShape, input._values().options());
+
+                  auto resultTensor =
+                    at::_sparse_coo_tensor_unsafe(indices,
+                                                  values,
+                                                  input.sizes(),
+                                                  input.options());
+
+                  if (sparseCoalesceMode != ccl::sparse_coalesce_mode::disable)
+                    resultTensor._coalesced_(true);
+
+                  /* propagate result using 1 way - outputTensors */
+                  TORCH_CHECK(resultTensor.layout() == c10::kSparse, "unexpected tensor layout");
+
+                  *outIndBuf = resultTensor._indices().data_ptr();
+                  *outValBuf = resultTensor._values().data_ptr();
+
+                  TORCH_CHECK(*outIndBuf, "result outIndBuf");
+                  TORCH_CHECK(*outValBuf, "result outValBuf");
+                  // add the reference of the temp buffer for the sparce all reduce.
+                  return resultTensor;
+                });
+              attr.set<ccl::sparse_allreduce_attr_id::fn_ctx>(static_cast<const void*>(cpu_cb_ptr.get()));
+            }
+            else {
+              attr.set<ccl::sparse_allreduce_attr_id::completion_fn>(
+                static_cast<ccl::sparse_allreduce_completion_fn>(sparseAllreduceCompletionFn));
+            }
             attr.set<ccl::sparse_allreduce_attr_id::coalesce_mode>(sparseCoalesceMode);
+
 
             ret_req = ccl::preview::sparse_allreduce(indices.data_ptr(),
                                                   (size_t)indices.numel(),
@@ -497,8 +456,9 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allreduce_(std::vecto
                                                   cclDatatypes.at(indices.scalar_type()),
                                                   cclDatatypes.at(values.scalar_type()),
                                                   cclOps.at(opts.reduceOp),
+                                                  comm,
                                                   attr);
-            return ret_req;
+            return std::make_tuple(ret_req, cpu_cb_ptr);
       });
 #endif
   }

@@ -143,8 +143,6 @@ struct RegisterDPCPPPMethods {
 std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> DPCPPCCLStubs::allreduce_(std::vector<at::Tensor>& tensors,
                                                                          const AllreduceOptions& opts,
                                                                          ProcessGroupCCL& pg_ccl) {
-  auto dev_type = check_tensors_properties(tensors);
-
   return collective(
     get_comms_colloctor(pg_ccl),
     tensors,

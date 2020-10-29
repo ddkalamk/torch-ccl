@@ -23,7 +23,7 @@ def check_env_flag(name, default=''):
 def _get_complier(runtime):
     if runtime == "dpcpp":
         # dpcpp build
-        return "clang", "clang++"
+        return "clang", "dpcpp"
     else:
         return "gcc", "g++"
 
@@ -212,6 +212,7 @@ class CMakeExtension(Extension):
         defines(cmake_args, **build_options)
         base_dir = os.path.dirname(os.path.abspath(__file__))
         cmake_args.append(base_dir)
+        print(' '.join(cmake_args))
         if not os.path.exists(self._cmake_cache_file):
             # Everything's in place. Do not rerun.
             self.run(cmake_args, env=my_env)
@@ -251,6 +252,7 @@ class BuildCMakeExt(build_ext):
 
         my_env = _create_build_env()
 
+        print("build_dir:", build_dir)
         extension.generate(my_env,
                            build_dir,
                            install_dir,

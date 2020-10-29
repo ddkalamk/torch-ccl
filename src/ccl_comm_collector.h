@@ -10,6 +10,8 @@
 #include <unordered_map>
 
 namespace torch_ccl {
+
+template <typename DevType>
 class Comms {
 public:
   explicit Comms(ccl::vector_class<ccl::communicator> &comms) :
@@ -37,6 +39,8 @@ public:
     return *this;
   }
 
+  void sync_streams(std::vector<at::Device>);
+
 public:
   // The Communicators used by CCL
   ccl::vector_class<ccl::communicator> comms;
@@ -47,6 +51,7 @@ public:
 template <typename DevType>
 class CCLCommsCollector {
 public:
+  using CommsType = Comms<DevType>;
   CCLCommsCollector(int rank = -1, int size = -1, ccl::shared_ptr_class<ccl::kvs> kvs = nullptr) :
     rank_(rank), size_(size), kvs_(kvs), comms_map{} {}
 
@@ -63,10 +68,10 @@ public:
   // Move assignable
   CCLCommsCollector &operator=(CCLCommsCollector &&other) = delete;
 
-  Comms& get_ccl_comms(const std::string& devices_key, const std::vector<at::Device>& devices);
+  CommsType& get_ccl_comms(const std::string& devices_key, const std::vector<at::Device>& devices);
 
 private:
-  std::shared_ptr<Comms> get_ccl_comms_(const std::string& devices_key) {
+  std::shared_ptr<CommsType> get_ccl_comms_(const std::string& devices_key) {
     if (comms_map.find(devices_key) != comms_map.end()) {
       // Reuse the cached communicator if there is one.
       return comms_map[devices_key];
@@ -76,7 +81,7 @@ private:
     }
   }
 
-  void set_ccl_comms_(const std::string& devices_key, std::shared_ptr<Comms>& comms) {
+  void set_ccl_comms_(const std::string& devices_key, std::shared_ptr<CommsType>& comms) {
     comms_map.emplace(devices_key, comms);
   }
 
@@ -104,7 +109,7 @@ private:
   //      "0,4,5,6,7,1,2,3"
   //
   //      Note that the order of the device for the tensor list matters.
-  std::unordered_map<std::string, std::shared_ptr<Comms>> comms_map;
+  std::unordered_map<std::string, std::shared_ptr<CommsType>> comms_map;
 };
 
 }

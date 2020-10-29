@@ -210,7 +210,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> collective(
   const auto key = get_key_from_devs(devices);
   auto& comms = ccl_comms.get_ccl_comms(key, devices);
   // First let CCL streams wait for computing kernel on the input tensors's finished.
-//  syncStreams(devices, comms_collector->gpu_streams);
+  comms.sync_streams(devices);
 
 //  pre(gpu_streams[key]);
 
