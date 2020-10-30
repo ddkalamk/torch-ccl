@@ -39,6 +39,17 @@ std::vector<at::Device> get_device_list(const std::vector<at::Tensor>& tensors) 
   return res;
 }
 
+
+std::vector<at::Device> get_device_list(const std::vector<std::vector<at::Tensor> >& tensors) {
+  std::vector<at::Device> res;
+  res.reserve(tensors.size());
+  for (auto& tensor : tensors) {
+    res.push_back(tensor[0].device());
+  }
+  return res;
+}
+
+
 void prologue_wrap(const void* in_buf,
                     size_t in_count,
                     ccl::datatype in_dtype,

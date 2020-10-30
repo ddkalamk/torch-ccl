@@ -31,10 +31,10 @@
 
 #include "ProcessGroupCCL.hpp"
 #include "dispatch_stub.h"
-
+#include <sys/types.h>
+#include <unistd.h>
 #include <map>
 #include <ATen/record_function.h>
-
 namespace c10d
 {
 using torch_ccl::DispatchStub;
@@ -79,7 +79,12 @@ std::shared_ptr<ProcessGroup> ProcessGroupCCL::createProcessGroupCCL(
     const std::chrono::milliseconds& op_time_out)
 {
     cclInitOnce();
-
+   volatile int i = 0;
+   static char hostname[256] = "local johnlu";
+   printf("PID %d on %s ready for attach\n", getpid(), hostname);
+   fflush(stdout);
+   sleep(30);
+   
     printf("torch ccl create process group rank %d, size %d\n", rank, size);
     return std::make_shared<ProcessGroupCCL>(store, rank, size, op_time_out);
 }
@@ -173,6 +178,11 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allgather(
     std::vector<at::Tensor>& inputTensors,
     const AllgatherOptions& opts)
 {
+  auto work = DispatchStub::allgather(outputTensors, inputTensors, opts, *this);
+
+  // sync run
+  work->run();
+  return work;
 }
 
 std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allgather_base(
@@ -196,95 +206,11 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::gather(
     std::vector<at::Tensor>& inputTensors,
     const GatherOptions& opts)
 {
-#if 0
-    RECORD_FUNCTION("pg::gather", std::vector<c10::IValue>({inputTensors[0]}));
+  auto work = DispatchStub::gather(outputTensors, inputTensors, opts, *this);
 
-    checkSingleTensor(inputTensors);
-
-    if (rank_ != opts.rootRank)
-    {
-        TORCH_CHECK(outputTensors.size() == 0,
-            "gather: number of output tensors should be 0 "
-            "for non-root");
-    }
-    else
-    {
-        TORCH_CHECK(outputTensors.size() == 1,
-            "gather: multi-GPU collective is not supported");
-
-        TORCH_CHECK(static_cast<size_t>(size_) == outputTensors[0].size(),
-            "gather: number of output tensors should equal "
-            "to the world size");
-
-        checkSameType(inputTensors[0], outputTensors[0]);
-    }
-
-    std::vector<size_t> sendCounts(size_, 0);
-    std::vector<size_t> recvCounts(size_, 0);
-    sendCounts[opts.rootRank] = inputTensors[0].numel();
-
-    at::Tensor flatOutput;
-    int64_t flatRecvCount = 0;
-    bool isOutputFlat = false;
-
-    if (rank_ == opts.rootRank)
-    {
-        isOutputFlat =
-            computeLengthsAndCheckAndGetFlat(outputTensors[0],
-                                             recvCounts, flatOutput, flatRecvCount);
-        TORCH_CHECK(sendCounts[rank_] == recvCounts[rank_],
-            "gather: send and recv count doesn't match");
-    }
-    else
-    {
-        flatOutput = at::empty({0}, inputTensors[0].options());
-    }
-
-
-    std::shared_ptr<ccl::request> req;
-
-    {
-        std::unique_lock<std::mutex> globalLock(globalMutex);
-        CCL_CHECK(req = comm.alltoallv(inputTensors[0].data_ptr(),
-                                        sendCounts,
-                                        flatOutput.data_ptr(),
-                                        recvCounts,
-                                        cclDatatypes.at(flatOutput.scalar_type())));
-    }
-
-    std::vector<at::Tensor> gatherTensors;
-
-    if (rank_ == opts.rootRank)
-    {
-        if (!isOutputFlat)
-        {
-            req->wait();
-
-            auto flatOutputSplits =
-                flatOutput.split_with_sizes(c10::IntArrayRef((int64_t*)recvCounts.data(),
-                                            recvCounts.size()), 0);
-
-            for (int i = 0; i < size_; i++)
-            {
-                outputTensors[0][i].view({-1}).copy_(flatOutputSplits[i]);
-            }
-        }
-        else
-        {
-            gatherTensors.emplace_back(flatOutput);
-            gatherTensors.emplace_back(inputTensors[0]);
-        }
-    }
-    else
-    {
-        gatherTensors.emplace_back(inputTensors[0]);
-    }
-
-    std::string debugName = std::string("gather::sz:") + std::to_string(inputTensors[0].numel());
-
-    return std::make_shared<ProcessGroupCCL::WorkCCL>(req, std::move(gatherTensors), std::move(debugName));
-#endif
-  TORCH_CHECK(false, "ProcessGroupCCL does not support allgather_coalesced");
+  // sync run
+  work->run();
+  return work;
 }
 
 std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::scatter(

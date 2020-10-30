@@ -47,6 +47,7 @@ std::string get_key_from_devs(const std::vector<at::Device>& devices);
 
 // Get the list of devices from list of tensors
 std::vector<at::Device> get_device_list(const std::vector<at::Tensor>& tensors);
+std::vector<at::Device> get_device_list(const std::vector<std::vector<at::Tensor>>& tensors);
 
 template <typename RunF, typename CommType, typename InputType, typename OutputType, typename attr_t>
 class AsyncWorkCCLWrap : public ProcessGroupCCL::AsyncWorkCCL {
@@ -58,7 +59,7 @@ public:
                const std::vector<OutputType>& outputs,
                const RunF f,
                CommType& comms,
-               attr_t& attr) : AsyncWorkCCL(), f(f), comms(comms), attr(attr), inputs(inputs), outputs(outputs), reqs{} {}
+               attr_t& attr) : AsyncWorkCCL(), f(f), comms(comms), attr(attr), inputs(inputs), outputs(outputs) {}
 
   void run() override {
     using Indices = std::make_index_sequence<num_params - 4>;

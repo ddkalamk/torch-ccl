@@ -53,6 +53,21 @@ public:
     return stubs_[to_int(dev_type)]->allgather_(outputTensors, inputTensors, opts, pg_ccl);
   }
    
+  static std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> gather(std::vector<std::vector<at::Tensor>>& outputTensors,
+                                                                  std::vector<at::Tensor>& inputTensors,
+                                                                  const GatherOptions& opts,
+                                                                  ProcessGroupCCL& pg_ccl) {
+    c10::DeviceType dev_type = inputTensors[0].device().type();
+    return stubs_[to_int(dev_type)]->gather_(outputTensors, inputTensors, opts, pg_ccl);
+  }
+  static std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> scatter(std::vector<at::Tensor>& outputTensors,
+                                                             std::vector<std::vector<at::Tensor>>& inputTensors,
+                                                             const ScatterOptions& opts,
+                                                             ProcessGroupCCL& pg_ccl){
+    c10::DeviceType dev_type = outputTensors[0].device().type();
+    return stubs_[to_int(dev_type)]->scatter_(outputTensors, inputTensors, opts, pg_ccl);
+  }
+
   static std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> alltoall_base(at::Tensor& outputTensor,
                                                                       at::Tensor& inputTensor,
                                                                       std::vector<int64_t>& outputSplitSizes,
@@ -103,6 +118,22 @@ protected:
                                                                     const AllgatherOptions& opts,
                                                                     ProcessGroupCCL& pg_ccl) {
     fail(inputTensors[0].device().type(), "allgather");
+    return nullptr;
+  }
+
+  virtual std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> gather_(std::vector<std::vector<at::Tensor>>& outputTensors,
+                                                                    std::vector<at::Tensor>& inputTensors,
+                                                                    const GatherOptions& opts,
+                                                                    ProcessGroupCCL& pg_ccl) {
+    fail(inputTensors[0].device().type(), "gather");
+    return nullptr;
+  }
+
+  virtual std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> scatter_(std::vector<at::Tensor>& outputTensors,
+                                                             std::vector<std::vector<at::Tensor>>& inputTensors,
+                                                             const ScatterOptions& opts,
+                                                             ProcessGroupCCL& pg_ccl){
+    fail(outputTensors[0].device().type(), "scatter");
     return nullptr;
   }
 
