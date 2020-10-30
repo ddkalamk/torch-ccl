@@ -494,15 +494,18 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::reduce_(std::vector<a
         ccl::communicator& comm) {
          RECORD_FUNCTION("torch_ccl::cpu::reduce", std::vector<c10::IValue>{input});
          ccl::communicator::coll_request_t ret_req;
-#if 0
-         ret_req = comm.reduce(input.data_ptr(),
-                                         input.data_ptr(),
-                                         (size_t)input.numel(),
-                                         cclDatatypes.at(input.scalar_type()),
-                                         cclOps.at(opts.reduceOp),
-                                         (size_t)opts.rootRank);
-#endif
+         CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "torch_ccl::cpu::broadcast", [&] { 
+           ret_req = ccl::reduce(input.data_ptr<scalar_t>(),
+                                 output.data_ptr(),
+                                 (size_t)input.numel(),
+                                 cclDatatypes.at(input.scalar_type()),
+                                 cclOps.at(opts.reduceOp),
+                                 (size_t)opts.rootRank,
+                                 comm);
+           
+         });
          return ret_req;
+         
     });
 
   return work;
