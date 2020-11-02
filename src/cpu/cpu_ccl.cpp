@@ -698,7 +698,6 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::scatter_(std::vector<
     std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> work;
     auto grp_size = pg_ccl.getSize();
     auto rank = pg_ccl.getRank();
-
     checkSingleTensor(outputTensors);
 
     if (rank != opts.rootRank)
@@ -824,8 +823,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::alltoall_base_(at::Te
   
   else{
     // Need alltoallv
-    
-    /*work = collective(
+    work = collective(
       get_comms_collector(pg_ccl),
       inputs,
       outputs,
@@ -835,16 +833,28 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::alltoall_base_(at::Te
           ccl::communicator& comm) {
           ccl::communicator::coll_request_t ret_req;
           CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "alltoall_base", [&] {
+          std::vector<size_t> sendCounts;
+                 std::transform(inputSplitSizes.begin(), inputSplitSizes.end(),
+                                std::back_inserter(sendCounts),
+                                [](const int64_t t) { return static_cast<size_t>(t); } );
+          std::vector<size_t> recvCounts;
+                 std::transform(outputSplitSizes.begin(), outputSplitSizes.end(),
+                                std::back_inserter(recvCounts),
+                                [](const int64_t t) { return static_cast<size_t>(t); } );   
+          for(auto i:recvCounts){
+             std::cout << i << " ";
+          }
+          std::cout << std::endl;
           ret_req = ccl::alltoallv(input.data_ptr<scalar_t>(),
-                                  inputSplitSizes,
+                                  sendCounts,
                                   output.data_ptr<scalar_t>(),
-                                  outputSplitSizes,
+                                  recvCounts,
                                   cclDatatypes.at(output.scalar_type()),
                                   comm,
                                   attr);
           });
           return ret_req;
-    });*/
+    });
   }
   return work;
 }

@@ -35,6 +35,9 @@
 #include <unistd.h>
 #include <map>
 #include <ATen/record_function.h>
+//#include <torch/csrc/autograd/record_function.h>
+
+
 namespace c10d
 {
 using torch_ccl::DispatchStub;
@@ -83,7 +86,7 @@ std::shared_ptr<ProcessGroup> ProcessGroupCCL::createProcessGroupCCL(
    static char hostname[256] = "local johnlu";
    printf("PID %d on %s ready for attach\n", getpid(), hostname);
    fflush(stdout);
-   sleep(30);
+   sleep(0);
    
     printf("torch ccl create process group rank %d, size %d\n", rank, size);
     return std::make_shared<ProcessGroupCCL>(store, rank, size, op_time_out);
@@ -218,82 +221,10 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::scatter(
     std::vector<std::vector<at::Tensor>>& inputTensors,
     const ScatterOptions& opts)
 {
-#if 0
-    RECORD_FUNCTION("pg::scatter", std::vector<c10::IValue>({outputTensors}));
-
-    checkSingleTensor(outputTensors);
-
-    if (rank_ != opts.rootRank)
-    {
-        TORCH_CHECK(inputTensors.size() == 0,
-            "scatter: number of input tensors should be 0 "
-            "for non-root");
-    }
-    else
-    {
-        TORCH_CHECK(inputTensors.size() == 1,
-            "scatter: multi-GPU collective is not supported");
-
-        TORCH_CHECK(static_cast<size_t>(size_) == inputTensors[0].size(),
-            "scatter: number of input tensors should equal "
-            "to the world size");
-
-        checkSameType(outputTensors[0], inputTensors[0]);
-    }
-
-    std::vector<size_t> sendCounts(size_, 0);
-    std::vector<size_t> recvCounts(size_, 0);
-    recvCounts[opts.rootRank] = outputTensors[0].numel();
-
-    at::Tensor flatInput;
-    int64_t flatSendCount = 0;
-
-    if (rank_ == opts.rootRank)
-    {
-        bool isInputFlat =
-            computeLengthsAndCheckAndGetFlat(inputTensors[0],
-                                             sendCounts, flatInput, flatSendCount);
-
-        if (!isInputFlat)
-        {
-            auto flatInputSplits =
-                flatInput.split_with_sizes(c10::IntArrayRef((int64_t*)sendCounts.data(),
-                                           sendCounts.size()), 0);
-
-            for (int i = 0; i < size_; i++)
-            {
-                flatInputSplits[i].copy_(inputTensors[0][i].view({-1}));
-            }
-        }
-        TORCH_CHECK(recvCounts[rank_] == sendCounts[rank_],
-            "scatter: send and recv count doesn't match");
-    }
-    else
-    {
-        flatInput = at::empty({0}, outputTensors[0].options());
-    }
-
-    std::shared_ptr<ccl::request> req;
-
-    {
-        std::unique_lock<std::mutex> globalLock(globalMutex);
-        CCL_CHECK(req = comm.alltoallv(flatInput.data_ptr(),
-                                        sendCounts,
-                                        outputTensors[0].data_ptr(),
-                                        recvCounts,
-                                        cclDatatypes.at(flatInput.scalar_type())));
-    }
-
-    std::vector<at::Tensor> scatterTensors;
-    scatterTensors.emplace_back(outputTensors[0]);
-    if (rank_ == opts.rootRank)
-        scatterTensors.emplace_back(flatInput);
-
-    std::string debugName = std::string("scatter::sz:") + std::to_string(outputTensors[0].numel());
-
-    return std::make_shared<ProcessGroupCCL::WorkCCL>(req, std::move(scatterTensors), std::move(debugName));
-#endif
-  TORCH_CHECK(false, "ProcessGroupCCL does not support reduce_scatter");
+    auto work = DispatchStub::scatter(outputTensors, inputTensors, opts, *this);
+    //sync run
+    work->run();
+    return work;
 }
 
 std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::reduce_scatter(
@@ -356,14 +287,14 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::recvAnysource(
 std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::barrier(
     const BarrierOptions& opts)
 {
-#if 0
+
     RECORD_FUNCTION("pg::barrier", std::vector<c10::IValue>());
 
     std::unique_lock<std::mutex> globalLock(globalMutex);
     CCL_CHECK(comm.barrier());
 
     return std::make_shared<ProcessGroupCCL::WorkCCL>();
-#endif
+
   TORCH_CHECK(false, "ProcessGroupCCL does not support recvAnysource");
 }
 
