@@ -15,6 +15,10 @@ set(DEPENDS_LIB)
 find_package(oneCCL REQUIRED)
 list(APPEND DEPENDS_LIB ${ONECCL_LIBRARIES})
 
+if(NOT DEFINED LIB_NAME)
+    SET(LIB_NAME "libtorch_ccl.so")
+endif()
+
 add_subdirectory(./src)
 
 function (print_configuration_summary)
