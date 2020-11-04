@@ -191,6 +191,7 @@ class CMakeExtension(Extension):
             'PYTORCH_INCLUDE_DIRS': convert_cmake_dirs(include_paths()),
             'PYTORCH_LIBRARY_DIRS': convert_cmake_dirs(library_paths()),
             'LIB_NAME': python_lib,
+            'PYTHON_INSTALL': "1",
         }
 
         for var, val in my_env.items():

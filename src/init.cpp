@@ -1,7 +1,7 @@
 //
 // Created by johnlu on 2019/12/10.
 //
-
+#ifdef PYTHON_INSTALL
 #include <torch/extension.h>
 #include <pybind11/chrono.h>
 #include "ProcessGroupCCL.hpp"
@@ -82,3 +82,4 @@ PYBIND11_MODULE(OCCL_LIBNAME, m) {
       py::arg("timeout") = std::chrono::milliseconds(10 * 1000));
 
 }
+#endif 
