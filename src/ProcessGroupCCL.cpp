@@ -82,11 +82,11 @@ std::shared_ptr<ProcessGroup> ProcessGroupCCL::createProcessGroupCCL(
     const std::chrono::milliseconds& op_time_out)
 {
     cclInitOnce();
-   volatile int i = 0;
+   /*volatile int i = 0;
    static char hostname[256] = "local johnlu";
    printf("PID %d on %s ready for attach\n", getpid(), hostname);
    fflush(stdout);
-   sleep(0);
+   sleep(30);*/
    
     printf("torch ccl create process group rank %d, size %d\n", rank, size);
     return std::make_shared<ProcessGroupCCL>(store, rank, size, op_time_out);
@@ -287,15 +287,8 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::recvAnysource(
 std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::barrier(
     const BarrierOptions& opts)
 {
-
-    RECORD_FUNCTION("pg::barrier", std::vector<c10::IValue>());
-
-    std::unique_lock<std::mutex> globalLock(globalMutex);
-    CCL_CHECK(comm.barrier());
-
-    return std::make_shared<ProcessGroupCCL::WorkCCL>();
-
-  TORCH_CHECK(false, "ProcessGroupCCL does not support recvAnysource");
+   return DispatchStub::barrier(opts, *this);
+    
 }
 
 } // namespace c10d

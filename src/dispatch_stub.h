@@ -86,7 +86,14 @@ public:
     return stubs_[to_int(dev_type)]->alltoall_(outputTensors, inputTensors, opts, pg_ccl);
 
   }
-
+  
+  static std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> barrier(const BarrierOptions& opts,
+                                                                ProcessGroupCCL& pg_ccl) {
+    printf("###########before distub CPU barrier()\n");
+    c10::DeviceType dev_type = c10::DeviceType::CPU;
+    return stubs_[to_int(dev_type)]->barrier_(opts, pg_ccl);
+  
+  }
 
   static void reset_all() {
     for(auto stub: stubs_) {
@@ -162,6 +169,10 @@ protected:
     return nullptr;
   }
 
+  virtual std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> barrier_(const BarrierOptions& opts,
+                                                                ProcessGroupCCL& pg_ccl) {
+    return nullptr;
+  }
 
   virtual void reset() {};
 

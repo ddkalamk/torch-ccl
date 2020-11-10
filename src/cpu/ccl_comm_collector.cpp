@@ -8,6 +8,20 @@ namespace torch_ccl {
 template <>
 void Comms<class CPU>::sync_streams(std::vector<at::Device> devices) {}
 
+//std::unordered_map<std::string, std::shared_ptr<CCLCommsCollector<class CPU>::CommsType>> 
+//CCLCommsCollector<class CPU>::get_comms_map(){
+//  return comms_map;
+//}
+/*template <>
+std::vector<CCLCommsCollector<class CPU>::CommsType>
+CCLCommsCollector<class CPU>::get_all_ccl_comms() {
+  std::vector<CCLCommsCollector<class CPU>::CommsType> comms;
+  for(auto iter = comms_map.begin(); iter != comms_map.end(); iter++){
+     comms.push_back(*(iter->second).get());
+  }
+  return comms;
+}*/
+
 template <>
 CCLCommsCollector<class CPU>::CommsType&
 CCLCommsCollector<class CPU>::get_ccl_comms(const std::string& devices_key, const std::vector<at::Device>& devices) {

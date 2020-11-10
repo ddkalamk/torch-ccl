@@ -243,6 +243,11 @@ protected:
                                                              std::vector<at::Tensor>& inputTensors,
                                                              const AllToAllOptions& opts,
                                                              ProcessGroupCCL& pg_ccl) override;
+  std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> barrier_(const BarrierOptions& opts,
+                                                                ProcessGroupCCL& pg_ccl) override;
+  
+ 
+ 
   void reset() override {
     ccl_comms.clear();
   }
@@ -992,6 +997,20 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::alltoall_(std::vector
   work->debugName = debugName;
   return work;
 }
+
+std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::barrier_(const BarrierOptions& opts,
+                                                                   ProcessGroupCCL& pg_ccl) {
+  
+  std::shared_ptr<AsyncBarrierWork> work = std::make_shared<AsyncBarrierWork>();
+  auto comms_map = get_comms_collector(pg_ccl).get_comms_map();
+  for(auto iter = comms_map.begin(); iter != comms_map.end(); iter++){
+      for(int i =0 ; i < iter->second->comms.size(); i++){
+         work->getReqs().emplace_back(ccl::barrier(iter->second->comms[i]));
+      }
+  }
+  return work; 
+}
+
 
 RegisterCPUPMethods cpu_register;
 

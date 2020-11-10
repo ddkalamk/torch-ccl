@@ -69,6 +69,10 @@ public:
   CCLCommsCollector &operator=(CCLCommsCollector &&other) = delete;
 
   CommsType& get_ccl_comms(const std::string& devices_key, const std::vector<at::Device>& devices);
+  
+  std::unordered_map<std::string, std::shared_ptr<CommsType>> get_comms_map(){
+     return comms_map;
+  }
 
 private:
   std::shared_ptr<CommsType> get_ccl_comms_(const std::string& devices_key) {

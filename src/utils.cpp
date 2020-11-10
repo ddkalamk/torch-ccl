@@ -33,9 +33,7 @@ std::string get_key_from_devs(const std::vector<at::Device>& devices) {
 std::vector<at::Device> get_device_list(const std::vector<at::Tensor>& tensors) {
   std::vector<at::Device> res;
   res.reserve(tensors.size());
-  std::cout << "get_device_list(const std::vector<at::Tensor>& tensors) tensors.size() "<< tensors.size() <<std::endl;
   for (auto& tensor : tensors) {
-    std::cout << "get_device_list(const std::vector<at::Tensor>& tensors) device.index " << std::to_string(tensor.device().index()) << std::endl;
     res.push_back(tensor.device());
   }
   return res;
@@ -45,9 +43,7 @@ std::vector<at::Device> get_device_list(const std::vector<at::Tensor>& tensors) 
 std::vector<at::Device> get_device_list(const std::vector<std::vector<at::Tensor> >& tensors) {
   std::vector<at::Device> res;
   res.reserve(tensors.size());
-  std::cout << "tensors.size() "<< tensors.size() <<std::endl;
   for (auto& tensor : tensors) {
-    std::cout << "device.index " << std::to_string(tensor[0].device().index()) << std::endl;
     res.push_back(tensor[0].device());
   }
   return res;

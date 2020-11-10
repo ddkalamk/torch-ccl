@@ -49,6 +49,68 @@ std::string get_key_from_devs(const std::vector<at::Device>& devices);
 std::vector<at::Device> get_device_list(const std::vector<at::Tensor>& tensors);
 std::vector<at::Device> get_device_list(const std::vector<std::vector<at::Tensor>>& tensors);
 
+class AsyncBarrierWork: public ProcessGroupCCL::AsyncWorkCCL {
+public:
+  AsyncBarrierWork(){}
+
+   ~AsyncBarrierWork()
+  {
+    if (!reqs.empty()) {
+      std::cerr << "attempted destruction of WorkCCL before work has completed, "
+                << "terminating the program."
+                << std::endl;
+      std::terminate();
+    }
+  }
+
+  std::vector<ccl::communicator::coll_request_t>& getReqs(){
+    return reqs;
+  }
+
+  bool isCompleted() override
+  {
+    for(auto& req : reqs) {
+      bool flag;
+
+      CCL_CHECK(flag = req.test());
+
+      if (!flag) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+   bool isSuccess() const override
+  {
+    throw std::runtime_error(
+      "invalid call to ::isSuccess.");
+  }
+
+  bool wait() override
+  {
+    for(auto& req : reqs) {
+      CCL_CHECK(req.wait());
+    }
+    reqs.clear();
+     return true;
+  }
+
+  void abort() override
+  {
+    TORCH_CHECK(false, "ProcessGroupCCL::WorkCCL::abort not implemented");
+  }
+  
+  void run() override{
+    TORCH_CHECK(false, "AsyncBarrierWork::run not implemented");
+  }
+
+private:
+  std::vector<ccl::communicator::coll_request_t> reqs;
+
+};
+
+
 template <typename RunF, typename CommType, typename InputType, typename OutputType, typename attr_t>
 class AsyncWorkCCLWrap : public ProcessGroupCCL::AsyncWorkCCL {
 public:

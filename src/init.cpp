@@ -1,7 +1,7 @@
 //
 // Created by johnlu on 2019/12/10.
 //
-#ifdef PYTHON_INSTALL
+//#ifdef PYTHON_INSTALL
 #include <torch/extension.h>
 #include <pybind11/chrono.h>
 #include "ProcessGroupCCL.hpp"
@@ -32,7 +32,7 @@ PYBIND11_MODULE(OCCL_LIBNAME, m) {
   // Note it could be different with module name. For example, the module
   // name is "torch_test" but the backend name is "test".
   // The second parameter is the instantiation function.
-  register_backend("occl", py::cpp_function(&c10d::ProcessGroupCCL::createProcessGroupCCL,
+  register_backend("ccl", py::cpp_function(&c10d::ProcessGroupCCL::createProcessGroupCCL,
                                             py::arg("store"),
                                             py::arg("rank"),
                                             py::arg("size"),
@@ -82,4 +82,4 @@ PYBIND11_MODULE(OCCL_LIBNAME, m) {
       py::arg("timeout") = std::chrono::milliseconds(10 * 1000));
 
 }
-#endif 
+//#endif 
