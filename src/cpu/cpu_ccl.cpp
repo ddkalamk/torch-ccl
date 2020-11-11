@@ -512,7 +512,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::reduce_(std::vector<a
          return ret_req;
          
     });
-
+  work->debugName = std::string("torch_ccl::CPU::reduce::sz:") + std::to_string(tensors[0].numel());
   return work;
 }
 
@@ -542,6 +542,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::broadcast_(std::vecto
           });
           return ret_req;
     });
+  work->debugName = std::string("torch_ccl::CPU::bcast::sz:") + std::to_string(tensors[0].numel());
   return work;
 }
 
@@ -600,7 +601,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allgather_(std::vecto
 
         return ret_req;
     });
-
+  work->debugName = std::string("torch_ccl::CPU::allgather::sz:") +  std::to_string(inputTensors[0].numel());
   return work;
 }
 
@@ -635,62 +636,66 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::gather_(std::vector<s
       checkSameType(inputTensors[0], outputTensors[0]);
   }
   work = collective(
-    get_comms_collector(pg_ccl),
-    inputTensors,
-    outputTensors,
-    [=](at::Tensor input,
-        std::vector<at::Tensor>& outputs,
-        ccl::allgatherv_attr attr,
-        ccl::communicator& comm) {
-        RECORD_FUNCTION("torch_ccl::cpu::gather", std::vector<c10::IValue>({input}));
-        
-  
-        ccl::communicator::coll_request_t ret_req;
-        CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "gather", [&] {
-          std::vector<size_t> sendCounts(grp_size, 0);
-          std::vector<size_t> recvCounts(grp_size, 0);
-          sendCounts[opts.rootRank] = input.numel();
-          if (rank == opts.rootRank)
+      get_comms_collector(pg_ccl),
+      inputTensors,
+      outputTensors,
+      [=](at::Tensor input,
+          std::vector<at::Tensor>& outputs,
+          ccl::alltoallv_attr attr,
+          ccl::communicator& comm) {
+
+      std::vector<size_t> sendCounts(grp_size, 0);
+      std::vector<size_t> recvCounts(grp_size, 0);
+      sendCounts[opts.rootRank] = input.numel();
+
+      at::Tensor flatOutput;
+      int64_t flatRecvCount = 0;
+       bool isOutputFlat = false;
+
+      if (rank == opts.rootRank)
+      {
+          isOutputFlat =
+              computeLengthsAndCheckAndGetFlat(outputs,
+                                               recvCounts, flatOutput, flatRecvCount);
+          TORCH_CHECK(sendCounts[rank] == recvCounts[rank],
+              "gather: send and recv count doesn't match");
+      }
+      else
+      {
+          flatOutput = at::empty({0}, input.options());
+      }
+      
+      ccl::communicator::coll_request_t ret_req;
+      CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "gather", [&] {
+          ret_req = ccl::alltoallv(input.data_ptr<scalar_t>(),
+                       sendCounts,
+                       flatOutput.data_ptr<scalar_t>(),
+                       recvCounts,
+                       cclDatatypes.at(flatOutput.scalar_type()),
+                       comm);
+      });
+
+
+      if (rank == opts.rootRank)
+      {
+          if (!isOutputFlat)
           {
-             auto flatRes = computeLengthsAndCheckFlat(outputs, recvCounts);
-             TORCH_CHECK(sendCounts[rank] == recvCounts[rank],
-                         "gather: send and recv count doesn't match");
-                   
-             if (flatRes.isFlat) {
-               scalar_t* recvBuf = flatRes.firstTensor.data_ptr<scalar_t>();
-               ret_req = ccl::allgatherv(input.data_ptr<scalar_t>(),
-                                      (size_t) input.numel(),
-                                      recvBuf,
-                                      recvCounts,
-                                      comm);
-             }
-             else {
-               std::vector<scalar_t*> recvBufs;
-               std::transform(outputs.begin(), outputs.end(),
-                              std::back_inserter(recvBufs),
-                              [](const at::Tensor& t) { return t.data_ptr<scalar_t>(); } );
+              ret_req.wait();
+              auto flatOutputSplits =
+                  flatOutput.split_with_sizes(c10::IntArrayRef((int64_t*)recvCounts.data(),
+                                              recvCounts.size()), 0);
 
-               ret_req = ccl::allgatherv(input.data_ptr<scalar_t>(),
-                                      (size_t) input.numel(),
-                                      recvBufs,
-                                      recvCounts,
-                                      comm);
-             }
-          
-          }else{
-             scalar_t* recvBuf = nullptr;
-             ret_req = ccl::allgatherv(input.data_ptr<scalar_t>(),
-                                      (size_t) input.numel(),
-                                      recvBuf,
-                                      recvCounts,
-                                      comm);               
+              for (int i = 0; i < grp_size; i++)
+              {
+                  outputs[i].view({-1}).copy_(flatOutputSplits[i]);
+              }
           }
-        });
+       }
 
-        return ret_req;
-    });
-  
-  work->debugName = std::string("gather::sz:") + std::to_string(inputTensors[0].numel());
+       return ret_req;
+  });
+    
+  work->debugName = std::string("torch_ccl::CPU::gather::sz:") + std::to_string(inputTensors[0].numel());
   return work;
 }
 
@@ -800,7 +805,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::scatter_(std::vector<
 
         });
    }
-   work->debugName = std::string("scatter::sz:") + std::to_string(outputTensors[0].numel());
+   work->debugName = std::string("torch_ccl::CPU::scatter::sz:") + std::to_string(outputTensors[0].numel());
    return work;
 
 }
@@ -870,9 +875,6 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::alltoall_base_(at::Te
                  std::transform(outputSplitSizes.begin(), outputSplitSizes.end(),
                                 std::back_inserter(recvCounts),
                                 [](const int64_t t) { return static_cast<size_t>(t); } );   
-          for(auto i:recvCounts){
-             std::cout << i << " ";
-          }
           std::cout << std::endl;
           ret_req = ccl::alltoallv(input.data_ptr<scalar_t>(),
                                   sendCounts,
@@ -884,7 +886,9 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::alltoall_base_(at::Te
           });
           return ret_req;
     });
-  }
+  } 
+  work->debugName = std::string("torch_ccl::CPU::alltoall_base::sz:") +
+        std::to_string((inputTensor.numel() + outputTensor.numel()) / (2 * grp_size));
   return work;
 }
 
@@ -903,122 +907,76 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::alltoall_(std::vector
   TORCH_CHECK(outputTensors.size() == (size_t)grp_size,
       "alltoall: number of output tensors are not equal to group size");
   
-  std::vector<size_t> sendCounts(grp_size);
-  std::vector<size_t> recvCounts(grp_size);
-
-  at::Tensor flatInput;
-  at::Tensor flatOutput;
-
-  int64_t flatSendCount;
-  int64_t flatRecvCount;
-
-  bool isInputFlat =
-      computeLengthsAndCheckAndGetFlat(inputTensors, sendCounts, flatInput, flatSendCount);
-
-  bool isOutputFlat =
-      computeLengthsAndCheckAndGetFlat(outputTensors, recvCounts, flatOutput, flatRecvCount);
-
-  if (!isInputFlat)
-  {
-      auto flatInputSplits =
-          flatInput.split_with_sizes(c10::IntArrayRef((int64_t*)sendCounts.data(),
-                                     sendCounts.size()), 0);
-
-      for (int i = 0; i < grp_size; i++)
-      {
-          flatInputSplits[i].copy_(inputTensors[i].view({-1}));
-      }
-  }
-  std::vector<at::Tensor> inputs = {flatInput};
-  std::vector<at::Tensor> outputs = {flatOutput};
+  std::vector<std::vector<at::Tensor>> outputTensors_list = {outputTensors};
+  std::vector<std::vector<at::Tensor>> inputTensors_list = {inputTensors};
   work = collective(
       get_comms_collector(pg_ccl),
-      inputs,
-      outputs,
-      [=](at::Tensor input,
-          at::Tensor output,
+      inputTensors_list,
+      outputTensors_list,
+      [=](std::vector<at::Tensor> inputs,
+          std::vector<at::Tensor> outputs,
           ccl::alltoallv_attr attr,
           ccl::communicator& comm) {
 
+      std::vector<size_t> sendCounts(grp_size);
+      std::vector<size_t> recvCounts(grp_size);
+
+      at::Tensor flatInput;
+      at::Tensor flatOutput;
+
+      int64_t flatSendCount;
+      int64_t flatRecvCount;
+
+      bool isInputFlat =
+          computeLengthsAndCheckAndGetFlat(inputs, sendCounts, flatInput, flatSendCount);
+
+      bool isOutputFlat =
+          computeLengthsAndCheckAndGetFlat(outputs, recvCounts, flatOutput, flatRecvCount);
+
+      if (!isInputFlat)
+      {
+          auto flatInputSplits =
+              flatInput.split_with_sizes(c10::IntArrayRef((int64_t*)sendCounts.data(),
+                                         sendCounts.size()), 0);
+
+          for (int i = 0; i < grp_size; i++)
+          {
+              flatInputSplits[i].copy_(inputs[i].view({-1}));
+          }
+      }
+      
+     std::string debugName = std::string("alltoall::sz:") + 
+                             std::to_string((flatSendCount + flatRecvCount) / (2 * grp_size));
+
+
       ccl::communicator::coll_request_t ret_req;
-      CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input[0].scalar_type(), "alltoall", [&] {
-          ret_req = ccl::alltoallv(input.data_ptr<scalar_t>(),
+      CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(inputs[0].scalar_type(), "alltoall", [&] {
+          ret_req = ccl::alltoallv(flatInput.data_ptr<scalar_t>(),
                        sendCounts,
-                       output.data_ptr<scalar_t>(),
+                       flatOutput.data_ptr<scalar_t>(),
                        recvCounts,
-                       cclDatatypes.at(input.scalar_type()),
+                       cclDatatypes.at(flatOutput.scalar_type()),
                        comm);
+           
+         if (!isOutputFlat)
+         {
+             ret_req.wait();
+
+             auto flatOutputSplits =
+                 flatOutput.split_with_sizes(c10::IntArrayRef((int64_t*)recvCounts.data(),
+                                             recvCounts.size()), 0);
+
+             for (int i = 0; i < grp_size; i++)
+             {
+                 outputs[i].view({-1}).copy_(flatOutputSplits[i]);
+             }
+         }
+        
       });
       return ret_req;
   });
-  std::vector<at::Tensor> a2aTensors;
-
-  if (!isOutputFlat)
-  {
-      work->run();
-      work->wait();
-
-      auto flatOutputSplits =
-          flatOutput.split_with_sizes(c10::IntArrayRef((int64_t*)recvCounts.data(),
-                                      recvCounts.size()), 0);
-
-      for (int i = 0; i < grp_size; i++)
-      {
-          outputTensors[i].view({-1}).copy_(flatOutputSplits[i]);
-      }
-  }
-  else
-  {
-      a2aTensors.emplace_back(flatOutput);
-      a2aTensors.emplace_back(flatInput);
-  }
-
-  std::string debugName = std::string("alltoall::sz:") +
-      std::to_string((flatSendCount + flatRecvCount) / (2 * grp_size));
-
-  /*checkSameType(outputTensors[0], inputTensors);
-  checkSameType(inputTensors[0], outputTensors);
-  std::vector<std::vector<at::Tensor>> inputs = {inputTensors};
-  std::vector<std::vector<at::Tensor>> outputs = {outputTensors};
-  work = collective(
-      get_comms_collector(pg_ccl),
-      inputs,
-      outputs,
-      [=](std::vector<at::Tensor>& input,
-          std::vector<at::Tensor>& output,
-          ccl::alltoallv_attr attr,
-          ccl::communicator& comm) {
-            ccl::communicator::coll_request_t ret_req;
-            std::vector<size_t> sendCounts(grp_size);
-            std::vector<size_t> recvCounts(grp_size);
-
-
-            computeLengthsAndCheckFlat(input, sendCounts);
-            computeLengthsAndCheckFlat(output, recvCounts);
-            CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input[0].scalar_type(), "alltoall", [&] {
-              std::vector<scalar_t*> recvBufs;
-                 std::transform(output.begin(), output.end(),
-                                std::back_inserter(recvBufs),
-                                [](const at::Tensor& t) { return t.data_ptr<scalar_t>(); } );
-              std::vector<scalar_t*> sendBufs;
-                 std::transform(input.begin(), input.end(),
-                                std::back_inserter(sendBufs),
-                                [](const at::Tensor& t) { return t.data_ptr<scalar_t>(); } );
-
-
-              ret_req = ccl::alltoallv(sendBufs,
-                                       sendCounts,
-                                       recvBufs,
-                                       recvCounts,
-                                       cclDatatypes.at(input[0].scalar_type()),
-                                       comm,
-                                       attr);
-              });
-
-            return ret_req;
-	
-	});*/
-  work->debugName = debugName;
+ 
+  work->debugName = std::string("torch_ccl::CPU::alltoall_base");
   return work;
 }
 
