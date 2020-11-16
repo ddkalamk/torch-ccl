@@ -89,7 +89,6 @@ public:
   
   static std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> barrier(const BarrierOptions& opts,
                                                                 ProcessGroupCCL& pg_ccl) {
-    printf("###########before distub CPU barrier()\n");
     c10::DeviceType dev_type = c10::DeviceType::CPU;
     return stubs_[to_int(dev_type)]->barrier_(opts, pg_ccl);
   
@@ -105,7 +104,7 @@ public:
 
   static void register_ccl_stub(c10::DeviceType devoce_type, DispatchStub* stub);
 
-protected:
+
   virtual std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> allreduce_(std::vector<at::Tensor>& tensors,
                                                                     const AllreduceOptions& opts,
                                                                     ProcessGroupCCL& pg_ccl) {
@@ -124,6 +123,7 @@ protected:
                                                                     std::vector<at::Tensor>& inputTensors,
                                                                     const AllgatherOptions& opts,
                                                                     ProcessGroupCCL& pg_ccl) {
+    
     fail(inputTensors[0].device().type(), "allgather");
     return nullptr;
   }
@@ -176,8 +176,10 @@ protected:
 
   virtual void reset() {};
 
-private:
+protected:
   static DispatchStub* stubs_[static_cast<std::underlying_type<c10::DeviceType>::type>(c10::DeviceType::COMPILE_TIME_MAX_DEVICE_TYPES)];
+
+private:
   static void fail(c10::DeviceType dev_type, const std::string method) {
     TORCH_CHECK(false, "torch_ccl: ", method, " isn't implementd on backend [", dev_type, "].");
   }
