@@ -87,13 +87,13 @@ public:
       "invalid call to ::isSuccess.");
   }
 
-  bool wait() override
+  bool wait(std::chrono::milliseconds timeout) override
   {
     for(auto& req : reqs) {
       CCL_CHECK(req.wait());
     }
     reqs.clear();
-     return true;
+    return true;
   }
 
   void abort() override
@@ -159,7 +159,7 @@ public:
       "invalid call to ::isSuccess.");
   }
 
-  bool wait() override
+  bool wait(std::chrono::milliseconds timeout) override
   {
     for(auto& req : reqs) {
       CCL_CHECK(req.wait());
