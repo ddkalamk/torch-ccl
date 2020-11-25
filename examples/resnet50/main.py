@@ -68,7 +68,7 @@ parser.add_argument('--rank', default=-1, type=int,
                     help='node rank for distributed training')
 parser.add_argument('--dist-url', default='env://', type=str,
                     help='url used to set up distributed training')
-parser.add_argument('--dist-backend', default='occl', type=str,
+parser.add_argument('--dist-backend', default='ccl', type=str,
                     help='distributed backend')
 parser.add_argument('--seed', default=None, type=int,
                     help='seed for initializing training. ')
@@ -193,7 +193,7 @@ def main_worker(gpu, ngpus_per_node, args):
                 layer.float()
 
     if args.sycl is not None:
-        model = model.to("dpcpp")
+        model = model.to("xpu")
 
     if args.distributed:
         # For multiprocessing distributed, DistributedDataParallel constructor
@@ -352,8 +352,8 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         if args.gpu is not None:
             input = input.cuda(args.gpu, non_blocking=True)
         if args.sycl is not None:
-            input = input.to("dpcpp")
-            target = target.to("dpcpp")
+            input = input.to("xpu")
+            target = target.to("xpu")
         #target = target.cuda(args.gpu, non_blocking=True)
         #target = target(args.gpu, non_blocking=True)
         # compute output
@@ -406,8 +406,8 @@ def validate(val_loader, model, criterion, args):
             if args.gpu is not None:
                 input = input.cuda(args.gpu, non_blocking=True)
             if args.sycl is not None:
-                input = input.to("dpcpp")
-                target = target.to("dpcpp")
+                input = input.to("xpu")
+                target = target.to("xpu")
             if args.fp16:
                 input = input.half()
                 # target = target.half()

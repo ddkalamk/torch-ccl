@@ -8,7 +8,7 @@ import torch.distributed as c10d
 from torch.testing._internal.common_utils import TestCase, run_tests
 
 cpu_device = torch.device("cpu")
-dpcpp_device = torch.device("dpcpp")
+dpcpp_device = torch.device("xpu")
 
 class ProcessGroupOCCLTest(TestCase):
     MAIN_PROCESS_RANK = 0

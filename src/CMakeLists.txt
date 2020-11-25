@@ -12,7 +12,7 @@ set_target_properties(torch_ccl PROPERTIES OUTPUT_NAME ${LIB_NAME})
 set_target_properties(torch_ccl PROPERTIES POSITION_INDEPENDENT_CODE ON)
 GetOCCLLibName(${LIB_NAME})
 
-if(DEFINED PY_MODULE)
+if(PY_MODULE)
   add_definitions(-DPY_MODULE)
 endif()
 

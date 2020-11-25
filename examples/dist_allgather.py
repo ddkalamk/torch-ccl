@@ -9,8 +9,8 @@ from torch.multiprocessing import Process
 
 def run(rank, size):
     """ Distributed function to be implemented later. """
-    t = torch.FloatTensor([rank + 1, rank + 1]).to("dpcpp")
-    outputs = [torch.empty([2]).to("dpcpp") for _ in range(size)]
+    t = torch.FloatTensor([rank + 1, rank + 1]).to("xpu")
+    outputs = [torch.empty([2]).to("xpu") for _ in range(size)]
     print("before broadcast rank {} size {} result {}".format(rank, size, outputs))
     torch.distributed.all_gather(outputs, t)
     torch.distributed.barrier()
@@ -18,7 +18,7 @@ def run(rank, size):
 
 
 
-def init_process(rank, size, fn, backend='occl'):
+def init_process(rank, size, fn, backend='ccl'):
     """ Initialize the distributed environment. """
     os.environ['MASTER_ADDR'] = '127.0.0.1'
     os.environ['MASTER_PORT'] = '29500'

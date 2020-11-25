@@ -149,9 +149,9 @@ DISTRIBUTED_TESTS_CONFIG = {}
 
 
 if dist.is_available():
-    DISTRIBUTED_TESTS_CONFIG['occl'] = {
+    DISTRIBUTED_TESTS_CONFIG['ccl'] = {
         'WORLD_SIZE': '3',
-        'TEST_REPORT_SOURCE_OVERRIDE': 'dist-occl'
+        'TEST_REPORT_SOURCE_OVERRIDE': 'dist-ccl'
     }
 
 # https://stackoverflow.com/questions/2549939/get-signal-names-from-numbers-in-python
@@ -271,7 +271,7 @@ def test_distributed(executable, test_module, test_directory, options):
             try:
                 os.mkdir(os.path.join(tmp_dir, 'barrier'))
                 os.mkdir(os.path.join(tmp_dir, 'test_dir'))
-                if backend == 'occl':
+                if backend == 'ccl':
                     # test mpiexec for --noprefix option
                     with open(os.devnull, 'w') as devnull:
                         noprefix_opt = '--noprefix' if subprocess.call(

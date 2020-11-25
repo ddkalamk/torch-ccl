@@ -21,7 +21,7 @@ def run(rank, size):
 
 
 
-def init_process(rank, size, fn, backend='occl'):
+def init_process(rank, size, fn, backend='ccl'):
     """ Initialize the distributed environment. """
     os.environ['MASTER_ADDR'] = '127.0.0.1'
     os.environ['MASTER_PORT'] = '29500'

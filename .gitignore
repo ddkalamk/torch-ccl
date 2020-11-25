@@ -163,7 +163,7 @@ caffe2/version.py
 
 # setup.py intermediates
 .eggs
-occl.egg-info
+torch_ccl.egg-info
 
 # Atom/Watchman required file
 .watchmanconfig

@@ -9,13 +9,13 @@ from torch.multiprocessing import Process
 
 def run(rank, size):
     """ Distributed function to be implemented later. """
-    t = torch.FloatTensor([rank]).to("dpcpp")
+    t = torch.FloatTensor([rank]).to("xpu")
     print("before all_reduce rank {} size {} result {}".format(rank, size, t.cpu()))
     torch.distributed.all_reduce(t)
     print("after all_reduce rank {} size {} result {}".format(rank, size, t.cpu()))
 
 
-def init_process(rank, size, fn, backend='occl'):
+def init_process(rank, size, fn, backend='ccl'):
     """ Initialize the distributed environment. """
     os.environ['MASTER_ADDR'] = '127.0.0.1'
     os.environ['MASTER_PORT'] = '29500'

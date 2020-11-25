@@ -456,7 +456,7 @@ ProcessGroupCCL::ProcessGroupCCL(int rank, int size)
         : ProcessGroup(rank, size),
           global_comm(ccl::environment::instance().create_communicator()) {
   cpu_streams.emplace_back(ccl::stream_t());
-  std::cout<< "create occl pg rank " << global_comm->rank() << " size " << global_comm->size() << std::endl;
+  std::cout<< "create ccl pg rank " << global_comm->rank() << " size " << global_comm->size() << std::endl;
 }
 
 ProcessGroupCCL::~ProcessGroupCCL() {}
