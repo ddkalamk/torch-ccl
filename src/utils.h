@@ -110,18 +110,22 @@ private:
 
 };
 
+template <typename> struct is_tuple: std::false_type {};
+
+template <typename ...T> struct is_tuple<std::tuple<T...>>: std::true_type {};
 
 template <typename RunF, typename CommType, typename InputType, typename OutputType, typename attr_t>
 class AsyncWorkCCLWrap : public ProcessGroupCCL::AsyncWorkCCL {
 public:
   using traits = function_traits<RunF>;
   static constexpr int num_params = traits::arity;
+  using ret_t = typename traits::result_type;
 
   AsyncWorkCCLWrap(const std::vector<InputType>& inputs,
-               const std::vector<OutputType>& outputs,
-               const RunF f,
-               CommType& comms,
-               attr_t& attr) : AsyncWorkCCL(), f(f), comms(comms), attr(attr), inputs(inputs), outputs(outputs) {}
+                   const std::vector<OutputType>& outputs,
+                   const RunF f,
+                   CommType& comms,
+                   attr_t& attr) : AsyncWorkCCL(), f(f), comms(comms), attr(attr), inputs(inputs), outputs(outputs) {}
 
   void run() override {
     using Indices = std::make_index_sequence<num_params - 4>;
@@ -130,7 +134,7 @@ public:
 
   ~AsyncWorkCCLWrap()
   {
-    if (!reqs.empty()) {
+    if (!rets.empty()) {
       std::cerr << "attempted destruction of WorkCCL before work has completed, "
                 << "terminating the program."
                 << std::endl;
@@ -140,9 +144,9 @@ public:
 
   bool isCompleted() override
   {
-    for(auto& req : reqs) {
+    for(auto& ret : rets) {
       bool flag;
-
+      ccl::communicator::coll_request_t& req = _get_req_from_ret<ret_t>(ret);
       CCL_CHECK(flag = req.test());
 
       if (!flag) {
@@ -161,10 +165,11 @@ public:
 
   bool wait(std::chrono::milliseconds timeout) override
   {
-    for(auto& req : reqs) {
+    for(auto& ret : rets) {
+      ccl::communicator::coll_request_t& req = _get_req_from_ret<ret_t>(ret);
       CCL_CHECK(req.wait());
     }
-    reqs.clear();
+    rets.clear();
     // Always return true, because abort API is not implemented.
     return true;
   }
@@ -172,6 +177,11 @@ public:
   void abort() override
   {
     TORCH_CHECK(false, "ProcessGroupCCL::WorkCCL::abort not implemented");
+  }
+
+  std::vector<at::Tensor> result() override
+  {
+    return result_wrap_<OutputType>();
   }
 
 //  std::vector<OutputType>& getOutputTensors()
@@ -188,14 +198,39 @@ private:
 
   template <std::size_t...INDEX>
   void run_wrap_(std::index_sequence<INDEX...>) {
-    if (reqs.empty()) {
+    if (rets.empty()) {
       for (size_t i = 0; i < inputs.size(); i++) {
-        CCL_CHECK(reqs.push_back(f(inputs[i], outputs[i], attr, comms.comms[i], comms.streams[i + INDEX]...)));
+        CCL_CHECK(rets.push_back(f(inputs[i], outputs[i], attr, comms.comms[i], comms.streams[i + INDEX]...)));
       }
     }
     else {
       // add warning for re run the ccl work
     }
+  }
+
+  template<typename T, std::enable_if_t<!std::is_same<T, at::Tensor>::value, bool> = true>
+  std::vector<at::Tensor> result_wrap_()
+  {
+    AT_ERROR("NOT implemented for the non std::vector<at::Tensor> return");
+  }
+
+  template<typename T, std::enable_if_t<std::is_same<T, at::Tensor>::value, bool> = true>
+  std::vector<at::Tensor> result_wrap_()
+  {
+    TORCH_CHECK(outputs.size() == 1, "unexpected result size");
+    return outputs;
+  }
+
+  template <typename R, std::enable_if_t<is_tuple<R>::value, bool> = true>
+  ccl::communicator::coll_request_t& _get_req_from_ret(R& ret)
+  {
+      return std::get<0>(ret);
+  }
+
+  template <typename R, std::enable_if_t<std::is_same<R, ccl::communicator::coll_request_t>::value, bool> = true>
+  ccl::communicator::coll_request_t& _get_req_from_ret(R& ret)
+  {
+    return ret;
   }
 
   RunF f;
@@ -207,7 +242,7 @@ private:
   */
   std::vector<InputType> inputs;
   std::vector<OutputType> outputs;
-  std::vector<ccl::communicator::coll_request_t> reqs;
+  std::vector<ret_t> rets;
 };
 
 template <typename RunF, typename CommType, typename InputType, typename OutputType, typename attr_t>

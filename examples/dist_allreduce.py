@@ -9,7 +9,10 @@ from torch.multiprocessing import Process
 
 def run(rank, size):
     """ Distributed function to be implemented later. """
-    t = torch.FloatTensor([rank]).to("xpu")
+    # t = torch.FloatTensor([rank]).to("xpu")
+    i = torch.LongTensor([[0, 3, 10]])
+    v = torch.FloatTensor([3, 4, 5])
+    t = torch.sparse.FloatTensor(i, v, torch.Size([16]))
     print("before all_reduce rank {} size {} result {}".format(rank, size, t.cpu()))
     torch.distributed.all_reduce(t)
     print("after all_reduce rank {} size {} result {}".format(rank, size, t.cpu()))

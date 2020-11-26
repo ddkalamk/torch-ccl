@@ -65,12 +65,6 @@ public:
 
     virtual void run() = 0;
 
-//    std::vector<at::Tensor> result() const override
-//    {
-//      TORCH_CHECK(outputs.size() == 1, "unexpected result size");
-//      return outputs;
-//    }
-
   public:
 
     std::string debugName;
