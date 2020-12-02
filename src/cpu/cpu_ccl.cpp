@@ -281,9 +281,6 @@ struct RegisterCPUPMethods {
       sparseResultMode = (SparseResultMode)atoi(sparseResultModeEnv);
     }
 
-    printf("sparse options: coalesce mode %d, result mode %d\n",
-           sparseCoalesceMode, (int)sparseResultMode);
-
     DispatchStub::register_ccl_stub(c10::DeviceType::CPU, &methods);
   }
 };
@@ -821,7 +818,6 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::alltoall_base_(at::Te
                  std::transform(outputSplitSizes.begin(), outputSplitSizes.end(),
                                 std::back_inserter(recvCounts),
                                 [](const int64_t t) { return static_cast<size_t>(t); } );   
-          std::cout << std::endl;
           ret_req = ccl::alltoallv(input.data_ptr<scalar_t>(),
                                   sendCounts,
                                   output.data_ptr<scalar_t>(),

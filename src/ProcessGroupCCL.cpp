@@ -34,8 +34,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <map>
-#include <ATen/record_function.h>
-//#include <torch/csrc/autograd/record_function.h>
+//#include <ATen/record_function.h>
+#include <torch/csrc/autograd/record_function.h>
 
 
 namespace c10d
@@ -58,7 +58,6 @@ const int64_t ProcessGroupCCL::OP_TIMEOUT_MILLIS = 10 * 1000;
 
 void ProcessGroupCCL::cclFini()
 {
-  std::cout << "cclFini " << std::endl;
   DispatchStub::reset_all();
 }
 
@@ -82,13 +81,6 @@ std::shared_ptr<ProcessGroup> ProcessGroupCCL::createProcessGroupCCL(
     const std::chrono::milliseconds& op_time_out)
 {
     cclInitOnce();
-   /*volatile int i = 0;
-   static char hostname[256] = "local johnlu";
-   printf("PID %d on %s ready for attach\n", getpid(), hostname);
-   fflush(stdout);
-   sleep(30);*/
-   
-    printf("torch ccl create process group rank %d, size %d\n", rank, size);
     return std::make_shared<ProcessGroupCCL>(store, rank, size, op_time_out);
 }
 
@@ -104,13 +96,10 @@ ProcessGroupCCL::ProcessGroupCCL(const std::shared_ptr<Store>& store, int rank, 
           kvs = ccl::create_main_kvs();
           ccl::kvs::address_type main_addr = kvs->get_address();
           auto ccl_kvs_addr = std::vector<uint8_t>(main_addr.begin(), main_addr.end());
-          printf("torch ccl rank %d, send kvs addr\n", rank);
           store_->set(storeKey, ccl_kvs_addr);
         }
         else {
-          printf("torch ccl rank %d, receiving kvs addr\n", rank);
           auto ccl_kvs_addr = store_->get(storeKey);
-          printf("torch ccl rank %d, got kvs addr\n", rank);
           if (ccl_kvs_addr.size() != ccl::kvs::address_max_size) {
             throw std::runtime_error(
               "Unexpected ccl kvs addr from the store\n");
@@ -128,8 +117,6 @@ ProcessGroupCCL::ProcessGroupCCL(const std::shared_ptr<Store>& store, int rank, 
 
 ProcessGroupCCL::~ProcessGroupCCL()
 {
-  std::cout << "Destroy the outstanding work here " << std::endl;
-  std::cout << "Destroy the related comm here " << std::endl;
 }
 
 std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::broadcast(
