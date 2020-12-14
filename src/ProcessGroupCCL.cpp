@@ -34,8 +34,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <map>
-//#include <ATen/record_function.h>
-#include <torch/csrc/autograd/record_function.h>
+#include <ATen/record_function.h>
 
 
 namespace c10d
