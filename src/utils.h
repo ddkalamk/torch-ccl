@@ -8,7 +8,6 @@
 #include "ProcessGroupCCL.hpp"
 #include <ATen/detail/FunctionTraits.h>
 #include <c10d/Types.hpp>
-#include <oneapi/ccl/ccl_coll_attr_ids.hpp>
 
 #define CCL_CHECK(cmd)                                               \
   do {                                                               \
@@ -63,7 +62,7 @@ public:
     }
   }
 
-  std::vector<ccl::communicator::coll_request_t>& getReqs(){
+  std::vector<ccl::event>& getReqs(){
     return reqs;
   }
 
@@ -106,7 +105,7 @@ public:
   }
 
 private:
-  std::vector<ccl::communicator::coll_request_t> reqs;
+  std::vector<ccl::event> reqs;
 
 };
 
@@ -146,7 +145,7 @@ public:
   {
     for(auto& ret : rets) {
       bool flag;
-      ccl::communicator::coll_request_t& req = _get_req_from_ret<ret_t>(ret);
+      ccl::event& req = _get_req_from_ret<ret_t>(ret);
       CCL_CHECK(flag = req.test());
 
       if (!flag) {
@@ -166,7 +165,7 @@ public:
   bool wait(std::chrono::milliseconds timeout) override
   {
     for(auto& ret : rets) {
-      ccl::communicator::coll_request_t& req = _get_req_from_ret<ret_t>(ret);
+      ccl::event& req = _get_req_from_ret<ret_t>(ret);
       CCL_CHECK(req.wait());
     }
     rets.clear();
@@ -222,13 +221,13 @@ private:
   }
 
   template <typename R, std::enable_if_t<is_tuple<R>::value, bool> = true>
-  ccl::communicator::coll_request_t& _get_req_from_ret(R& ret)
+  ccl::event& _get_req_from_ret(R& ret)
   {
       return std::get<0>(ret);
   }
 
-  template <typename R, std::enable_if_t<std::is_same<R, ccl::communicator::coll_request_t>::value, bool> = true>
-  ccl::communicator::coll_request_t& _get_req_from_ret(R& ret)
+  template <typename R, std::enable_if_t<std::is_same<R, ccl::event>::value, bool> = true>
+  ccl::event& _get_req_from_ret(R& ret)
   {
     return ret;
   }

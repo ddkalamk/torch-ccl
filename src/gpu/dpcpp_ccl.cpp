@@ -155,7 +155,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> DPCPPCCLStubs::allreduce_(std::ve
       RECORD_FUNCTION("torch_ccl::dpcpp::allreduce", std::vector<c10::IValue>({input}));
       auto count = input.numel();
 
-      ccl::communicator::coll_request_t ret_req;
+      ccl::event ret_req;
 
       CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "torch_ccl::dpcpp::allreduce", [&] {
         ret_req = ccl::allreduce(input.data_ptr<scalar_t>(), output.data_ptr<scalar_t>(),
@@ -186,7 +186,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> DPCPPCCLStubs::broadcast_(std::ve
       RECORD_FUNCTION("torch_ccl::dpcpp::broadcast", std::vector<c10::IValue>({input}));
       auto count = input.numel();
       const auto root = opts.rootRank * tensors.size() + opts.rootTensor;
-      ccl::communicator::coll_request_t ret_req;
+      ccl::event ret_req;
 
       CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "torch_ccl::dpcpp::broadcast", [&] {
           ret_req = ccl::broadcast(input.data_ptr<scalar_t>(), (size_t)count, root,

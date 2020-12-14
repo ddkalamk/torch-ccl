@@ -349,7 +349,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allreduce_(std::vecto
           ccl::allreduce_attr attr,
           ccl::communicator& comm){
             RECORD_FUNCTION("torch_ccl::cpu::allreduce", std::vector<c10::IValue>{input});
-            ccl::communicator::coll_request_t ret_req;
+            ccl::event ret_req;
 
             CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "torch_ccl::cpu::allreduce", [&] {
               ret_req = ccl::allreduce(input.data_ptr<scalar_t>(),
@@ -375,7 +375,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allreduce_(std::vecto
             RECORD_FUNCTION("torch_ccl::cpu::sparse_allreduce", std::vector<c10::IValue>{input});
             TORCH_CHECK(input.sparse_dim() == 1, "allreduce: only single sparse_dim is supported");
 
-            ccl::communicator::coll_request_t ret_req;
+            ccl::event ret_req;
             auto indices = input._indices();
             auto values = input._values();
 
@@ -441,7 +441,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::reduce_(std::vector<a
         ccl::reduce_attr attr,
         ccl::communicator& comm) {
          RECORD_FUNCTION("torch_ccl::cpu::reduce", std::vector<c10::IValue>{input});
-         ccl::communicator::coll_request_t ret_req;
+         ccl::event ret_req;
          CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "torch_ccl::cpu::broadcast", [&] { 
            ret_req = ccl::reduce(input.data_ptr<scalar_t>(),
                                  output.data_ptr(),
@@ -475,7 +475,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::broadcast_(std::vecto
         ccl::broadcast_attr attr,
         ccl::communicator& comm) {
           RECORD_FUNCTION("torch_ccl::cpu::broadcast", std::vector<c10::IValue>{input});
-          ccl::communicator::coll_request_t ret_req;
+          ccl::event ret_req;
 
           CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "torch_ccl::cpu::broadcast", [&] {
             ret_req = ccl::broadcast(input.data_ptr<scalar_t>(),
@@ -511,7 +511,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allgather_(std::vecto
         ccl::communicator& comm) {
         RECORD_FUNCTION("torch_ccl::cpu::allgather", std::vector<c10::IValue>({input}));
 
-        ccl::communicator::coll_request_t ret_req;
+        ccl::event ret_req;
         CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "allgather", [&] {
           std::vector<size_t> recvCounts(pg_ccl.getSize(), 0);
 
@@ -608,7 +608,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::gather_(std::vector<s
           flatOutput = at::empty({0}, input.options());
       }
       
-      ccl::communicator::coll_request_t ret_req;
+      ccl::event ret_req;
       CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "gather", [&] {
           ret_req = ccl::alltoallv(input.data_ptr<scalar_t>(),
                        sendCounts,
@@ -680,7 +680,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::scatter_(std::vector<
             ccl::alltoallv_attr attr,
             ccl::communicator& comm) {
 
-            ccl::communicator::coll_request_t ret_req;
+            ccl::event ret_req;
             std::vector<size_t> sendCounts(grp_size, 0);
             std::vector<size_t> recvCounts(grp_size, 0);
             recvCounts[opts.rootRank] = output.numel();
@@ -728,7 +728,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::scatter_(std::vector<
              ccl::alltoallv_attr attr,
              ccl::communicator& comm) {
 
-             ccl::communicator::coll_request_t ret_req;
+             ccl::event ret_req;
              std::vector<size_t> sendCounts(grp_size, 0);
              std::vector<size_t> recvCounts(grp_size, 0);
              recvCounts[opts.rootRank] = output.numel();
@@ -783,7 +783,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::alltoall_base_(at::Te
           at::Tensor output,
           ccl::alltoall_attr attr,
           ccl::communicator& comm) {
-            ccl::communicator::coll_request_t ret_req;
+            ccl::event ret_req;
             CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "alltoall_base", [&] {
               ret_req = ccl::alltoall(input.data_ptr<scalar_t>(),
                                       output.data_ptr<scalar_t>(),
@@ -808,7 +808,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::alltoall_base_(at::Te
           at::Tensor output,
           ccl::alltoallv_attr attr,
           ccl::communicator& comm) {
-          ccl::communicator::coll_request_t ret_req;
+          ccl::event ret_req;
           CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "alltoall_base", [&] {
           std::vector<size_t> sendCounts;
                  std::transform(inputSplitSizes.begin(), inputSplitSizes.end(),
@@ -891,7 +891,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::alltoall_(std::vector
                              std::to_string((flatSendCount + flatRecvCount) / (2 * grp_size));
 
 
-      ccl::communicator::coll_request_t ret_req;
+      ccl::event ret_req;
       CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(inputs[0].scalar_type(), "alltoall", [&] {
           ret_req = ccl::alltoallv(flatInput.data_ptr<scalar_t>(),
                        sendCounts,

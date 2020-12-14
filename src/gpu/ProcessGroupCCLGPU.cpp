@@ -477,7 +477,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::broadcast(
                           coll_attr.match_id = tensorName.c_str();
 #endif
                           const auto root = opts.rootRank * tensors.size() + opts.rootTensor;
-                          ccl::communicator::coll_request_t ret_req;
+                          ccl::event ret_req;
 
                           CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "broadcast", [&] {
                             if (dev_type == c10::DeviceType::DPCPP) {
@@ -518,7 +518,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allreduce(
                           coll_attr.match_id = tensorName.c_str();
 #endif
                           auto reduce_op = cclOp.at(opts.reduceOp);
-                          ccl::communicator::coll_request_t ret_req;
+                          ccl::event ret_req;
 
                           CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "allreduce", [&] {
                             if (dev_type == c10::DeviceType::DPCPP) {
@@ -563,7 +563,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::reduce(
 #endif
                       const auto root = opts.rootRank * tensors.size() + opts.rootTensor;
                       auto reduce_op = cclOp.at(opts.reduceOp);
-                      ccl::communicator::coll_request_t ret_req;
+                      ccl::event ret_req;
 
                       CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "reduce", [&] {
                         if (dev_type == c10::DeviceType::DPCPP) {
@@ -616,7 +616,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allgather(
 #ifdef USE_CACHE
                             coll_attr.match_id = tensorName.c_str();
 #endif
-                            ccl::communicator::coll_request_t ret_req;
+                            ccl::event ret_req;
 
                             CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "allgather", [&] {
 
@@ -662,7 +662,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allgather(
 #ifdef USE_CACHE
                         coll_attr.match_id = tensorName.c_str();
 #endif
-                        ccl::communicator::coll_request_t ret_req;
+                        ccl::event ret_req;
 
                         CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "allgather", [&] {
                           std::vector<scalar_t *> recv_bufs;
@@ -740,7 +740,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::gather(
                          std::vector<size_t> recv_count(size_, input.numel());
                          auto coll_attr = attr;
                          send_count[opts.rootRank] = input.numel();
-                         ccl::communicator::coll_request_t ret_req;
+                         ccl::event ret_req;
 
                          CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "gather", [&] {
                            std::vector<scalar_t *> recv_bufs;
@@ -773,7 +773,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::gather(
                           std::vector<size_t> recv_count(size_, 0);
                           auto coll_attr = attr;
                           send_count[opts.rootRank] = input.numel();
-                          ccl::communicator::coll_request_t ret_req;
+                          ccl::event ret_req;
 
                           CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "gather", [&] {
                             std::cout<< "gather slave rank " << global_comm->rank() << " size " << global_comm->size() << std::endl;
@@ -840,7 +840,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::scatter(
                           std::vector<size_t> recv_count(size_, 0);
                           auto coll_attr = attr;
                           recv_count[opts.rootRank] = output.numel();
-                          ccl::communicator::coll_request_t ret_req;
+                          ccl::event ret_req;
 
                           CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(output.scalar_type(), "scatter", [&] {
                             std::vector<scalar_t *> send_bufs;
@@ -873,7 +873,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::scatter(
                           std::vector<size_t> recv_count(size_, 0);
                           auto coll_attr = attr;
                           recv_count[opts.rootRank] = output.numel();
-                          ccl::communicator::coll_request_t ret_req;
+                          ccl::event ret_req;
 
                           CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "scatter", [&] {
                             std::cout<< "scatter slave rank " << global_comm->rank() << " size " << global_comm->size() << std::endl;

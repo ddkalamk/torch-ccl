@@ -72,7 +72,7 @@ public:
       requests_.resize(devices.size());
     }
 
-    WorkCCL(ccl::communicator::coll_request_t& req)
+    WorkCCL(ccl::event& req)
     {
       requests_.push_back(std::move(req));
     }
@@ -88,7 +88,7 @@ public:
     bool wait() override;
 
   protected:
-    std::vector<ccl::communicator::coll_request_t> requests_;
+    std::vector<ccl::event> requests_;
     mutable std::mutex mutex_;
 
     friend class ProcessGroupCCL;
