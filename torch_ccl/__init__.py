@@ -1,7 +1,7 @@
 import sys
 import warnings
 
-from .lib import libtorch_ccl as occl_lib
+from . import _C as occl_lib
 try:
     from .lib import libtorch_ccl_dpcpp
 except ImportError as e:

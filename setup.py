@@ -226,11 +226,11 @@ class BuildCMakeExt(build_ext):
         """
         Perform build_cmake before doing the 'normal' stuff
         """
-        for extension in self.extensions:
-            if isinstance(extension, CMakeExtension):
-                self.build_cmake(extension)
-
-        # super().run()
+        dpcpp_exts = [ext for ext in self.extensions if isinstance(ext, CMakeExtension)]
+        for ext in dpcpp_exts:
+            self.build_cmake(ext)
+        self.extensions = [ext for ext in self.extensions if not isinstance(ext, CMakeExtension)]
+        super(BuildCMakeExt, self).run()
 
     def build_cmake(self, extension: CMakeExtension):
         """
@@ -293,9 +293,57 @@ class Clean(clean):
 
         clean.run(self)
 
+
+def get_python_c_module():
+    main_compile_args = []
+    main_libraries = ['torch_ccl']
+    main_link_args = []
+    main_sources = ["torch_ccl/csrc/_C.cpp"]
+    cwd = os.path.dirname(os.path.abspath(__file__))
+    lib_path = os.path.join(cwd, "torch_ccl", "lib")
+    library_dirs = [lib_path]
+    include_path = os.path.join(cwd, "src")
+    include_dirs = include_paths()
+    include_dirs.append(include_path)
+    extra_link_args = []
+    extra_compile_args = [
+        '-Wall',
+        '-Wextra',
+        '-Wno-strict-overflow',
+        '-Wno-unused-parameter',
+        '-Wno-missing-field-initializers',
+        '-Wno-write-strings',
+        '-Wno-unknown-pragmas',
+        # This is required for Python 2 declarations that are deprecated in 3.
+        '-Wno-deprecated-declarations',
+        # Python 2.6 requires -fno-strict-aliasing, see
+        # http://legacy.python.org/dev/peps/pep-3123/
+        # We also depend on it in our code (even Python 3).
+        '-fno-strict-aliasing',
+        # Clang has an unfixed bug leading to spurious missing
+        # braces warnings, see
+        # https://bugs.llvm.org/show_bug.cgi?id=21629
+        '-Wno-missing-braces',
+    ]
+
+    def make_relative_rpath(path):
+        return '-Wl,-rpath,$ORIGIN/' + path
+
+    c_module = Extension("torch_ccl._C",
+                  libraries=main_libraries,
+                  sources=main_sources,
+                  language='c',
+                  extra_compile_args=main_compile_args + extra_compile_args,
+                  include_dirs=include_dirs,
+                  library_dirs=library_dirs,
+                  extra_link_args=extra_link_args + main_link_args + [make_relative_rpath('lib')])
+
+    return c_module
+
 if __name__ == '__main__':
   build_deps()
-  modules = [CMakeExtension("libtorch_ccl", "./CMakeLists.txt")]
+  c_module = get_python_c_module()
+  modules = [c_module, CMakeExtension("libtorch_ccl", "./CMakeLists.txt")]
   setup(
       name='torch_ccl',
       version=version,

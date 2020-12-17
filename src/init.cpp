@@ -1,19 +1,16 @@
 //
 // Created by johnlu on 2019/12/10.
 //
-#ifdef PY_MODULE
-#include <torch/extension.h>
+#include <init.h>
 #include <pybind11/chrono.h>
 #include "ProcessGroupCCL.hpp"
 
-#ifndef OCCL_LIBNAME
-#define OCCL_LIBNAME liboccl
-#endif
+namespace py = pybind11;
 
 template <typename T>
 using shared_ptr_class_ = py::class_<T, std::shared_ptr<T>>;
 
-PYBIND11_MODULE(OCCL_LIBNAME, m) {
+TORCH_CCL_CPP_API void torch_ccl_python_init(pybind11::module &m) {
   m.def("create_pg_occl", &c10d::ProcessGroupCCL::createProcessGroupCCL, "Create One CCL Backend");
 //  m.def("_occl_version", );
 //
@@ -33,15 +30,15 @@ PYBIND11_MODULE(OCCL_LIBNAME, m) {
   // name is "torch_test" but the backend name is "test".
   // The second parameter is the instantiation function.
   register_backend("ccl", py::cpp_function(&c10d::ProcessGroupCCL::createProcessGroupCCL,
-                                            py::arg("store"),
-                                            py::arg("rank"),
-                                            py::arg("size"),
-                                            py::arg("timeout") = std::chrono::milliseconds(
-                                              ::c10d::ProcessGroupCCL::OP_TIMEOUT_MILLIS)));
+                                           py::arg("store"),
+                                           py::arg("rank"),
+                                           py::arg("size"),
+                                           py::arg("timeout") = std::chrono::milliseconds(
+                                                   ::c10d::ProcessGroupCCL::OP_TIMEOUT_MILLIS)));
 
   auto processGroup = module.attr("ProcessGroup");
   auto processGroupOCCL = shared_ptr_class_<::c10d::ProcessGroupCCL>(
-    module, "ProcessGroupOCCL", processGroup);
+          module, "ProcessGroupOCCL", processGroup);
 
 //  shared_ptr_class_<::gloo::transport::Device>(processGroupGloo, "Device");
 
@@ -69,17 +66,16 @@ PYBIND11_MODULE(OCCL_LIBNAME, m) {
 //    py::arg("interface") = "");
 
   processGroupOCCL
-    .def(
-      py::init([](const std::shared_ptr<::c10d::Store>& store,
-                  int rank,
-                  int size,
-                  std::chrono::milliseconds timeout) {
-        return std::make_shared<::c10d::ProcessGroupCCL>(store, rank, size, timeout);
-      }),
-      py::arg("store"),
-      py::arg("rank"),
-      py::arg("size"),
-      py::arg("timeout") = std::chrono::milliseconds(10 * 1000));
+          .def(
+                  py::init([](const std::shared_ptr<::c10d::Store>& store,
+                              int rank,
+                              int size,
+                              std::chrono::milliseconds timeout) {
+                      return std::make_shared<::c10d::ProcessGroupCCL>(store, rank, size, timeout);
+                  }),
+                  py::arg("store"),
+                  py::arg("rank"),
+                  py::arg("size"),
+                  py::arg("timeout") = std::chrono::milliseconds(10 * 1000));
 
 }
-#endif 
