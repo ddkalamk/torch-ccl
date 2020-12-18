@@ -1,22 +1,8 @@
 import sys
 import warnings
+from .version import __version__, build_type, git_version
 
 from . import _C as occl_lib
-try:
-    from .lib import libtorch_ccl_dpcpp
-except ImportError as e:
-    # cannot import the dpcpp ccl library
-    pass
-
-
-from .occl import (
-    all_reduce,
-    all_gather,
-    broadcast,
-    init_rank,
-    reduce,
-    reduce_scatter,
-    unique_id)
 
 __all__ = []
 __all__ += [name for name in dir(occl_lib)
