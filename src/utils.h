@@ -1,7 +1,3 @@
-//
-// Created by johnlu on 2020/9/27.
-//
-
 #ifndef TORCH_CCL_UTILS_H
 #define TORCH_CCL_UTILS_H
 
@@ -300,20 +296,15 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> collective(
   using traits = function_traits<fn>;
   using attr_t = typename traits::template arg<2>::type;
   attr_t attr = ccl::create_operation_attr<attr_t>();
-//  attr.template set<ccl::operation_attr_id::prologue_fn>((ccl::prologue_fn)prologue_wrap);
-//  attr.template set<ccl::operation_attr_id::epilogue_fn>((ccl::epilogue_fn)epilogue_wrap);
+
   const auto devices = get_device_list(inputs);
   const auto key = get_key_from_devs(devices);
   auto& comms = ccl_comms.get_ccl_comms(key, devices);
   // First let CCL streams wait for computing kernel on the input tensors's finished.
   comms.sync_streams(devices);
 
-//  pre(gpu_streams[key]);
-
   std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> work;
   work = make_work_ccl(inputs, outputs, fun, comms, attr);
-
-//  post(gpu_streams[key]);
 
   return work;
 }

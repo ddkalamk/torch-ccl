@@ -1,7 +1,6 @@
 //
 // Created by johnlu on 2020/9/24.
 //
-
 #ifndef TORCH_CCL_DISPATCH_STUBS_H
 #define TORCH_CCL_DISPATCH_STUBS_H
 

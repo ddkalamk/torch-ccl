@@ -1,7 +1,3 @@
-//
-// Created by johnlu on 2020/9/24.
-//
-
 #include "dispatch_stub.h"
 
 namespace torch_ccl {

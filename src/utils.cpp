@@ -1,7 +1,3 @@
-//
-// Created by johnlu on 2020/9/27.
-//
-
 #include "utils.h"
 
 namespace torch_ccl {

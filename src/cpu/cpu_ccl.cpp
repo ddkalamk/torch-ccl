@@ -1,13 +1,11 @@
-//
-// Created by johnlu on 2020/9/23.
-//
 #include <ProcessGroupCCL.hpp>
 #include <dispatch_stub.h>
 #include <utils.h>
 #include <common/comm/host_communicator/host_communicator.hpp>
 #include "ccl_cpu.h"
-//#include <torch/csrc/autograd/record_function.h>
 #include <ATen/record_function.h>
+
+
 namespace torch_ccl
 {
 
