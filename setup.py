@@ -224,7 +224,8 @@ class BuildCMakeExt(build_ext):
         extension_path = pathlib.Path(self.get_ext_fullpath(extension.name))
 
         build_dir.mkdir(parents=True, exist_ok=True)
-        install_dir = str(extension_path.parent.absolute()) + '/torch_ccl'
+        cwd = os.path.dirname(os.path.abspath(__file__))
+        install_dir = os.path.join(cwd, "torch_ccl")
         # extension_path.parent.absolute().mkdir(parents=True, exist_ok=True)
 
         # Now that the necessary directories are created, build
@@ -244,8 +245,6 @@ class BuildCMakeExt(build_ext):
         build_args = ['-j', max_jobs]
 
         check_call(['make', 'torch_ccl'] + build_args, cwd=str(build_dir), env=my_env)
-        if extension.runtime == "dpcpp":
-            check_call(['make', 'torch_ccl_dpcpp'] + build_args, cwd=str(build_dir), env=my_env)
         check_call(['make', 'install'], cwd=str(build_dir), env=my_env)
 
 
