@@ -1,6 +1,15 @@
 cmake_minimum_required(VERSION 3.13 FATAL_ERROR)
-project(torch_ccl)
 set(CMAKE_CXX_STANDARD 14)
+
+project(torch_ccl C CXX)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wformat")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror=cpp")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wformat-security")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fstack-protector")
+
+set(LINUX TRUE)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_INSTALL_MESSAGE NEVER)
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules)
 
@@ -12,9 +21,8 @@ set(CMAKE_INSTALL_RPATH_USE_LINK_PATH FALSE)
 
 set(CMAKE_SKIP_INSTALL_ALL_DEPENDENCY true)
 
-set(DEPENDS_LIB)
-
 # Find OneCCL Lib
+set(DEPENDS_LIB)
 find_package(oneCCL REQUIRED)
 list(APPEND DEPENDS_LIB ${ONECCL_LIBRARIES})
 
@@ -48,36 +56,6 @@ function (print_configuration_summary)
     get_target_property(LINK_DIRECTORS torch_ccl LINK_DIRECTORIES)
     message(STATUS "  Linker libraries        : ${LINK_DIRECTORS}")
 
-#    message(STATUS "  USE_COMPUTECPP        : ${USE_COMPUTECPP}")
-#    if (USE_COMPUTECPP)
-#        message(STATUS "  ComputeCpp include    : ${ComputeCpp_INCLUDE_DIRS}")
-#        message(STATUS "  ComputeCpp library    : ${COMPUTECPP_RUNTIME_LIBRARY}")
-#        message(STATUS "  OpenCL include        : ${OpenCL_INCLUDE_DIRS}")
-#        message(STATUS "  OpenCL library        : ${OpenCL_LIBRARIES}")
-#    endif(USE_COMPUTECPP)
-
-    message(STATUS "  USE_DPCPP             : ${USE_DPCPP}")
-    if (USE_DPCPP)
-#        message(STATUS "  Intel SYCL include    : ${SYCL_INCLUDE_DIR}")
-#        message(STATUS "  Intel SYCL library    : ${SYCL_LIBRARY}")
-#        message(STATUS "  OpenCL include        : ${OpenCL_INCLUDE_DIR}")
-#        message(STATUS "  OpenCL library        : ${OpenCL_LIBRARY}")
-#        message(STATUS "  LevelZero include     : ${LevelZero_INCLUDE_DIRS}")
-#        message(STATUS "  LevelZero library     : ${LevelZero_LIBRARIES}")
-#
-#        message(STATUS "  USE_ONEMKL            : ${MKLDPCPP_FOUND}")
-#        if (MKLDPCPP_FOUND)
-#            message(STATUS "  ONEMKL include        : ${ONEMKL_INCLUDE_DIR}")
-#        endif(MKLDPCPP_FOUND)
-#
-#        message(STATUS "  USE_PSTL              : ${USE_PSTL}")
-#        if (USE_PSTL)
-#            message(STATUS "  PSTL include          : ${PSTL_INCLUDE_DIRS}")
-#        endif(USE_PSTL)
-#
-#        message(STATUS "  USE_USM               : ${USE_USM}")
-#        message(STATUS "  BUILD_BY_PER_KERNEL   : ${BUILD_BY_PER_KERNEL}")
-    endif(USE_DPCPP)
     message(STATUS "")
 endfunction()
 

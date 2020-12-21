@@ -35,7 +35,6 @@ std::vector<at::Device> get_device_list(const std::vector<at::Tensor>& tensors) 
   return res;
 }
 
-
 std::vector<at::Device> get_device_list(const std::vector<std::vector<at::Tensor> >& tensors) {
   std::vector<at::Device> res;
   res.reserve(tensors.size());
@@ -43,34 +42,6 @@ std::vector<at::Device> get_device_list(const std::vector<std::vector<at::Tensor
     res.push_back(tensor[0].device());
   }
   return res;
-}
-
-
-void prologue_wrap(const void* in_buf,
-                    size_t in_count,
-                    ccl::datatype in_dtype,
-                    void** out_buf,
-                    size_t* out_count,
-                    ccl::datatype* out_dtype,
-                    const ccl::fn_context* context) {
-  if (out_buf)
-    *out_buf = (void*)in_buf;
-  if (out_count)
-    *out_count = in_count;
-  if (out_dtype)
-    *out_dtype = in_dtype;
-}
-
-
-void epilogue_wrap(const void* in_buf,
-                    size_t in_count,
-                    ccl::datatype in_dtype,
-                    void* out_buf,
-                    size_t* out_count,
-                    ccl::datatype* out_dtype,
-                    const ccl::fn_context* context) {
-  if (out_count)
-    *out_count = in_count;
 }
 
 }

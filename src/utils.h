@@ -50,7 +50,7 @@ public:
 
    ~AsyncBarrierWork()
   {
-    if (!reqs.empty()) {
+    if (!events.empty()) {
       std::cerr << "attempted destruction of WorkCCL before work has completed, "
                 << "terminating the program."
                 << std::endl;
@@ -58,16 +58,16 @@ public:
     }
   }
 
-  std::vector<ccl::event>& getReqs(){
-    return reqs;
+  std::vector<ccl::event>& getEvents(){
+    return events;
   }
 
   bool isCompleted() override
   {
-    for(auto& req : reqs) {
+    for(auto& event : events) {
       bool flag;
 
-      CCL_CHECK(flag = req.test());
+      CCL_CHECK(flag = event.test());
 
       if (!flag) {
         return false;
@@ -78,16 +78,15 @@ public:
 
    bool isSuccess() const override
   {
-    throw std::runtime_error(
-      "invalid call to ::isSuccess.");
+    throw std::runtime_error("invalid call to ::isSuccess.");
   }
 
   bool wait(std::chrono::milliseconds timeout) override
   {
-    for(auto& req : reqs) {
-      CCL_CHECK(req.wait());
+    for(auto& event : events) {
+      CCL_CHECK(event.wait());
     }
-    reqs.clear();
+    events.clear();
     return true;
   }
 
@@ -101,7 +100,7 @@ public:
   }
 
 private:
-  std::vector<ccl::event> reqs;
+  std::vector<ccl::event> events;
 
 };
 
@@ -141,7 +140,7 @@ public:
   {
     for(auto& ret : rets) {
       bool flag;
-      ccl::event& req = _get_req_from_ret<ret_t>(ret);
+      ccl::event& req = _get_event_from_ret<ret_t>(ret);
       CCL_CHECK(flag = req.test());
 
       if (!flag) {
@@ -154,15 +153,14 @@ public:
 
   bool isSuccess() const override
   {
-    throw std::runtime_error(
-      "invalid call to ::isSuccess.");
+    throw std::runtime_error("invalid call to ::isSuccess.");
   }
 
   bool wait(std::chrono::milliseconds timeout) override
   {
     for(auto& ret : rets) {
-      ccl::event& req = _get_req_from_ret<ret_t>(ret);
-      CCL_CHECK(req.wait());
+      ccl::event& evt = _get_event_from_ret<ret_t>(ret);
+      CCL_CHECK(evt.wait());
     }
     rets.clear();
     // Always return true, because abort API is not implemented.
@@ -178,16 +176,6 @@ public:
   {
     return result_wrap_<OutputType>();
   }
-
-//  std::vector<OutputType>& getOutputTensors()
-//  {
-//    return outputs;
-//  }
-//
-//  std::vector<InputType>& getInputTensors()
-//  {
-//    return inputs;
-//  }
 
 private:
 
@@ -217,13 +205,13 @@ private:
   }
 
   template <typename R, std::enable_if_t<is_tuple<R>::value, bool> = true>
-  ccl::event& _get_req_from_ret(R& ret)
+  ccl::event& _get_event_from_ret(R& ret)
   {
       return std::get<0>(ret);
   }
 
   template <typename R, std::enable_if_t<std::is_same<R, ccl::event>::value, bool> = true>
-  ccl::event& _get_req_from_ret(R& ret)
+  ccl::event& _get_event_from_ret(R& ret)
   {
     return ret;
   }
@@ -250,40 +238,6 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> make_work_ccl(const std::vector<I
   ret_ptr.reset(new AsyncWorkCCLWrap<RunF, CommType, InputType, OutputType, attr_t>(inputs, outputs, f, comms, attr));
   return ret_ptr;
 }
-#if 0
-class callback_context {
-  virtual void run_hook() = 0;
-}
-
-template<typename RunF>
-class cpu_callback : public callback_context {
-  virtual void run_hook() {
-    actural_run();
-  };
-
-  private:
-    void actural_run() {
-      f();
-    }
-
-  RunF f;
-}
-#endif
-extern void prologue_wrap(const void* in_buf,
-                    size_t in_count,
-                    ccl::datatype in_dtype,
-                    void** out_buf,
-                    size_t* out_count,
-                    ccl::datatype* out_dtype,
-                    const ccl::fn_context* context);
-
-extern void epilogue_wrap(const void* in_buf,
-                    size_t in_count,
-                    ccl::datatype in_dtype,
-                    void* out_buf,
-                    size_t* out_count,
-                    ccl::datatype* out_dtype,
-                    const ccl::fn_context* context);
 
 template <typename comm_t, typename fn, typename pre_process, typename post_process, typename input_t, typename output_t>
 std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> collective(

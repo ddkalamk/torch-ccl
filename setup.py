@@ -8,7 +8,7 @@ import pathlib
 import shutil
 import multiprocessing
 from subprocess import check_call, check_output
-from tools.env import _find_dpcpp_home, BUILD_DIR
+from tools.env import BUILD_DIR
 
 from torch.utils.cpp_extension import include_paths, library_paths
 from setuptools import setup, Extension, distutils, find_packages
@@ -21,11 +21,7 @@ def check_env_flag(name, default=''):
 
 
 def _get_complier(runtime):
-    if runtime == "dpcpp":
-        # dpcpp build
-        return "clang", "dpcpp"
-    else:
-        return "gcc", "g++"
+  return "gcc", "g++"
 
 
 # hotpatch environment variable 'CMAKE_BUILD_TYPE'. 'CMAKE_BUILD_TYPE' always prevails over DEBUG or REL_WITH_DEB_INFO.
@@ -44,7 +40,6 @@ lib_path = os.path.join(cwd, "torch_ccl", "lib")
 package_name = os.getenv('OCCL_PACKAGE_NAME', 'torch-ccl')
 version = open('version.txt', 'r').read().strip()
 sha = 'Unknown'
-build_dpcpp = check_env_flag('USE_DPCPP')
 
 try:
     sha = check_output(['git', 'rev-parse', 'HEAD'], cwd=cwd).decode('ascii').strip()
@@ -112,11 +107,7 @@ class CMakeExtension(Extension):
         self.cmake_file = cmake_file
         self.debug = True
         self._cmake_command = CMakeExtension._get_cmake_command()
-        self.runtime='native'
-        if build_dpcpp:
-            dpcpp_home = _find_dpcpp_home()
-            if dpcpp_home:
-                self.runtime='dpcpp'
+        self.runtime ='native'
 
     @staticmethod
     def _get_version(cmd):
@@ -196,15 +187,6 @@ class CMakeExtension(Extension):
         for var, val in my_env.items():
             if var.startswith(('BUILD_', 'USE_', 'CMAKE_')):
                 build_options[var] = val
-
-        if self.runtime == "dpcpp":
-            build_options['COMPUTE_RUNTIME'] = str(self.runtime)
-            from torch_ipex import include_paths as ipex_include_paths
-            from torch_ipex import library_paths as ipex_library_paths
-            build_options['IPEX_INCLUDE_DIRS'] = convert_cmake_dirs(ipex_include_paths())
-            build_options['IPEX_LIBRARY_DIRS'] = convert_cmake_dirs(ipex_library_paths())
-        elif self.runtime == "native:":
-            pass
 
         cc, cxx = _get_complier(self.runtime)
         defines(cmake_args, CMAKE_C_COMPILER=cc)

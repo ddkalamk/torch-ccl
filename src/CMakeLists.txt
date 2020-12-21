@@ -3,13 +3,9 @@ add_library(torch_ccl SHARED ${OCCL_SRCS})
 set_target_properties(torch_ccl PROPERTIES OUTPUT_NAME ${LIB_NAME})
 set_target_properties(torch_ccl PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-target_compile_options(torch_ccl PUBLIC
-        -Wall
-        -Wno-unused-parameter
-        -Wno-missing-field-initializers
-        -Wno-write-strings
-        -Wno-unknown-pragmas
-        )
+target_compile_options(torch_ccl PUBLIC -Wall
+        -Wno-sign-compare
+        -Wno-unused-function)
 
 target_include_directories(torch_ccl PUBLIC ${ONECCL_INCLUDE_DIR} ${PYTHON_INCLUDE_DIRS} ${PYTORCH_INCLUDE_DIRS} ${IPEX_INCLUDE_DIRS} ./)
 

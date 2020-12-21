@@ -72,7 +72,10 @@ public:
     friend class ProcessGroupCCL;
   };
 
-  explicit ProcessGroupCCL(const std::shared_ptr<Store>& store, int rank, int size, const std::chrono::milliseconds& op_time_out);
+  explicit ProcessGroupCCL(const std::shared_ptr<Store>& store,
+                           int rank,
+                           int size,
+                           const std::chrono::milliseconds& op_time_out);
   virtual ~ProcessGroupCCL();
 
   std::shared_ptr<ProcessGroup::Work> broadcast(
@@ -179,9 +182,9 @@ public:
   // processGroupID tracking
   static std::mutex pgTrackingLock_;
 
-  static std::unordered_map<std::string, ssize_t> pgUniqueNCCLIDCnt_;
-
   static std::unordered_map<std::string, ssize_t> processGroupCounterMap_;
+
+  static std::unordered_map<std::string, ssize_t> pgUniqueNCCLIDCnt_;
 };
 
 

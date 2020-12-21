@@ -1,3 +1,34 @@
+/*
+ * Copyright (c) 2020, Intel Corporation
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * 3. Neither the name of the Intel Corporation nor the names of its contributors
+ *    may be used to endorse or promote products derived from this software
+ *    without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
+
 #include <ProcessGroupCCL.hpp>
 #include <dispatch_stub.h>
 #include <utils.h>
@@ -44,12 +75,6 @@ std::map<ccl::datatype, at::ScalarType> ptDatatypes =
     {ccl::datatype::int64, at::kLong}
   };
 
-std::ostream& operator << (std::ostream& os, const SparseResultMode& mode)
-{
-  os << static_cast<std::underlying_type<SparseResultMode>::type>(mode);
-  return os;
-}
-
 // Checking the input tensor's validity
 void checkSingleTensorHelper(const at::Tensor& tensor)
 {
@@ -91,28 +116,6 @@ void checkSameType(const at::Tensor& tensor,
                 "tensors are not equal in data type");
 
     checkSingleTensorHelper(tensors[i]);
-  }
-}
-
-void checkSplitSizes(
-  const std::vector<int64_t>& split_sizes,
-  const at::Tensor& tensor,
-  int groupSize)
-{
-  if (split_sizes.size() == 0)
-  {
-    TORCH_CHECK(tensor.size(0) % groupSize == 0,
-                "tensor's dim 0 does not divide equally across group size");
-  }
-  else
-  {
-    TORCH_CHECK(split_sizes.size() == (size_t)groupSize,
-                "number of tensor splits not equal to group size");
-
-    int sum = std::accumulate(split_sizes.begin(), split_sizes.end(), 0);
-
-    TORCH_CHECK(sum == tensor.size(0),
-                "split sizes doesn't match total dim 0 size");
   }
 }
 
@@ -493,7 +496,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allgather_(std::vecto
                                                                       const AllgatherOptions& opts,
                                                                       ProcessGroupCCL& pg_ccl) {
   checkSingleTensor(inputTensors);
-  TORCH_CHECK(pg_ccl.getSize() == outputTensors[0].size(),
+  TORCH_CHECK(static_cast<size_t>(pg_ccl.getSize()) == outputTensors[0].size(),
               "allgather: number of output tensors should equal to the world size");
 
   checkSameType(inputTensors[0], outputTensors[0]);
@@ -926,8 +929,8 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::barrier_(const Barrie
   std::shared_ptr<AsyncBarrierWork> work = std::make_shared<AsyncBarrierWork>();
   auto comms_map = get_comms_collector(pg_ccl).get_comms_map();
   for(auto iter = comms_map.begin(); iter != comms_map.end(); iter++){
-      for(int i =0 ; i < iter->second->comms.size(); i++){
-         work->getReqs().emplace_back(ccl::barrier(iter->second->comms[i]));
+      for(size_t i =0 ; i < iter->second->comms.size(); i++){
+         work->getEvents().emplace_back(ccl::barrier(iter->second->comms[i]));
       }
   }
   return work; 
