@@ -159,7 +159,7 @@ class CMakeExtension(Extension):
         check_call(command, cwd=self.build_dir, env=env)
 
 
-    def generate(self, my_env, build_dir, install_prefix, python_lib):
+    def generate(self, my_env, build_dir, install_prefix):
         """Runs cmake to generate native build files."""
 
         def convert_cmake_dirs(paths):
@@ -180,8 +180,6 @@ class CMakeExtension(Extension):
             'PYTHON_INCLUDE_DIRS': str(distutils.sysconfig.get_python_inc()),
             'PYTORCH_INCLUDE_DIRS': convert_cmake_dirs(include_paths()),
             'PYTORCH_LIBRARY_DIRS': convert_cmake_dirs(library_paths()),
-            'LIB_NAME': python_lib,
-            'PY_MODULE': "1",
         }
 
         for var, val in my_env.items():
@@ -237,8 +235,7 @@ class BuildCMakeExt(build_ext):
         print("build_dir:", build_dir)
         extension.generate(my_env,
                            build_dir,
-                           install_dir,
-                           extension_path.name)
+                           install_dir)
 
         # Build the target
         self.announce("Building binaries", level=3)
