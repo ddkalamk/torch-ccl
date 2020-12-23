@@ -1,6 +1,5 @@
 # DEBUG build with debug
 
-# USE_DPCPP -  build the torch_ccl library support the sycl
 # USE_SYSTEM_ONECCL -  build the torch_ccl library support the sycl
 
 import os
@@ -221,22 +220,17 @@ class BuildCMakeExt(build_ext):
 
         self.announce("Preparing the build environment", level=3)
         build_dir = pathlib.Path('.'.join([self.build_temp, extension.name]))
-        extension_path = pathlib.Path(self.get_ext_fullpath(extension.name))
 
         build_dir.mkdir(parents=True, exist_ok=True)
         cwd = os.path.dirname(os.path.abspath(__file__))
         install_dir = os.path.join(cwd, "torch_ccl")
-        # extension_path.parent.absolute().mkdir(parents=True, exist_ok=True)
 
         # Now that the necessary directories are created, build
         self.announce("Configuring cmake project", level=3)
 
         my_env = _create_build_env()
 
-        print("build_dir:", build_dir)
-        extension.generate(my_env,
-                           build_dir,
-                           install_dir)
+        extension.generate(my_env, build_dir, install_dir)
 
         # Build the target
         self.announce("Building binaries", level=3)

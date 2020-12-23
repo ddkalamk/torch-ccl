@@ -18,6 +18,7 @@ class ProcessGroupOCCLTest(TestCase):
         self.world_size = int(os.environ['PMI_SIZE'])
         self.file = tempfile.NamedTemporaryFile(delete=False)
         self.num_devs_per_proc = 1
+        print("johnlu rank {} world_size {}".format(self.rank, self.world_size))
         # self.num_devs_per_proc = torch.cuda.device_count()
         # if self.num_devs_per_proc < 2:
         #     print("skip test")
@@ -52,7 +53,7 @@ class ProcessGroupOCCLTest(TestCase):
 
     def test_broadcast_ops(self):
         store = c10d.FileStore(self.file.name, self.world_size)
-        pg = c10d.ProcessGroupOCCL(store, self.rank, self.world_size)
+        pg = c10d.ProcessGroupCCL(store, self.rank, self.world_size)
 
         def broadcast(xs, rootRank, rootTensor):
             opts = c10d.BroadcastOptions()
@@ -61,6 +62,7 @@ class ProcessGroupOCCLTest(TestCase):
             work = pg.broadcast(xs, opts)
             work.wait()
 
+        print("johnlu test_broadcast_ops rank {} world_size {}".format(self.rank, self.world_size))
         # for every root rank
         for dev_type in [cpu_device]:
             for rt in range(self.world_size):
@@ -282,5 +284,5 @@ class ProcessGroupOCCLTest(TestCase):
 
 if __name__ == '__main__':
     # assert not torch.cuda._initialized, "test_distributed must not have initialized CUDA context on main process"
-
+    print("johnlu in test")
     run_tests()
