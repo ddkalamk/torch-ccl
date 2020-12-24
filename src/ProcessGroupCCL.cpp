@@ -79,7 +79,6 @@ std::shared_ptr<ProcessGroup> ProcessGroupCCL::createProcessGroupCCL(
     int size,
     const std::chrono::milliseconds& op_time_out)
 {
-  cclInitOnce();
   return std::make_shared<ProcessGroupCCL>(store, rank, size, op_time_out);
 }
 

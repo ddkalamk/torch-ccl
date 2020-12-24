@@ -41,6 +41,8 @@ using shared_ptr_class_ = py::class_<T, std::shared_ptr<T>>;
 
 TORCH_CCL_CPP_API void torch_ccl_python_init(pybind11::module &m) {
 
+  c10d::ProcessGroupCCL::cclInitOnce();
+
   m.def("oneCCL_spec_version", []() {
     std::string oneCCL_spec_ver;
     std::ostringstream os(oneCCL_spec_ver);
