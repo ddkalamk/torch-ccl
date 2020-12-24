@@ -65,14 +65,14 @@ def shell(command, cwd=None, env=None):
     # https://github.com/python/cpython/blob/71b6c1af727fbe13525fb734568057d78cea33f3/Lib/subprocess.py#L309-L323
     assert not isinstance(command, torch._six.string_classes), "Command to shell should be a list or tuple of tokens"
     p = subprocess.Popen(command, universal_newlines=True, cwd=cwd, env=env)
-    return wait_for_process(p)
+    return p
 
 
 def print_to_stderr(message):
     print(message, file=sys.stderr)
 
 
-def run_test(executable, test_module, test_directory, options, *extra_unittest_args):
+def run_test(executable, test_module, test_directory, options, env, *extra_unittest_args):
     unittest_args = options.additional_unittest_args
     if options.verbose:
         unittest_args.append('--verbose')
@@ -81,57 +81,39 @@ def run_test(executable, test_module, test_directory, options, *extra_unittest_a
     argv = [test_module + '.py'] + unittest_args + list(extra_unittest_args)
 
     command = executable + argv
-    print("johnlu run test {}".format(command))
-    return shell(command, test_directory)
+    print("john lu execute {}".format(command))
+    return shell(command, test_directory, env)
 
 
 def test_distributed(executable, test_module, test_directory, options):
     mpi_available = subprocess.call('command -v mpiexec', shell=True) == 0
-    if options.verbose and not mpi_available:
-        print_to_stderr(
-            'MPI not available -- MPI backend tests will be skipped')
+    if not mpi_available:
+        print_to_stderr('MPI not available -- ccl unit test use the mpiexec to launch test')
     config = DISTRIBUTED_TESTS_CONFIG
     for backend, env_vars in config.items():
-        if backend == 'mpi' and not mpi_available:
-            continue
-        for with_init_file in {True, False}:
-            tmp_dir = tempfile.mkdtemp()
-            if options.verbose:
-                with_init = ' with file init_method' if with_init_file else ''
-                print_to_stderr(
-                    'Running distributed tests for the {} backend{}'.format(
-                        backend, with_init))
-            os.environ['TEMP_DIR'] = tmp_dir
-            os.environ['BACKEND'] = backend
-            os.environ['INIT_METHOD'] = 'env://'
-            os.environ.update(env_vars)
-            if with_init_file:
-                if test_module == "test_distributed":
-                    init_method = 'file://{}/'.format(tmp_dir)
-                else:
-                    init_method = 'file://{}/shared_init_file'.format(tmp_dir)
-                os.environ['INIT_METHOD'] = init_method
-            try:
-                os.mkdir(os.path.join(tmp_dir, 'barrier'))
-                os.mkdir(os.path.join(tmp_dir, 'test_dir'))
-                if backend == 'ccl':
-                    # test mpiexec for --noprefix option
-                    with open(os.devnull, 'w') as devnull:
-                        noprefix_opt = '--noprefix' if subprocess.call(
-                            'mpiexec -n 1 --noprefix bash -c ""', shell=True,
-                            stdout=devnull, stderr=subprocess.STDOUT) == 0 else ''
+        tmp_dir = tempfile.mkdtemp()
+        os.environ['TEMP_DIR'] = tmp_dir
+        os.environ['TEMP_FILE_NAME'] = tempfile.NamedTemporaryFile(delete=False).name
+        os.environ["WORLD_SIZE"] = '2'
+        os.environ.update(env_vars)
 
-                    mpiexec = ['mpirun', '-n', '2', '-ppn', '2'] + executable
+        processes = []
+        current_env = os.environ.copy()
 
-                    return_code = run_test(mpiexec, test_module,
-                                           test_directory, options)
-                else:
-                    return_code = run_test(executable, test_module, test_directory,
-                                           options)
-                if return_code != 0:
-                    return return_code
-            finally:
-                shutil.rmtree(tmp_dir)
+        for local_rank in range(0, 2):
+            # each process's rank
+            current_env["RANK"] = str(local_rank)
+
+            # spawn the processes
+            p = run_test(executable, test_module, test_directory, options, current_env)
+            processes.append(p)
+
+        for process in processes:
+            # wait_for_process(process)
+            process.wait()
+            if process.returncode != 0:
+                raise subprocess.CalledProcessError(returncode=process.returncode,
+                                                    cmd=executable)
     return 0
 
 
@@ -231,7 +213,7 @@ def get_executable_command(options):
     if options.coverage:
         executable = ['coverage', 'run', '--parallel-mode', '--source torch']
     else:
-        executable = [sys.executable]
+        executable = [sys.executable, '-u']
     if options.pytest:
         executable += ['-m', 'pytest']
     return executable
