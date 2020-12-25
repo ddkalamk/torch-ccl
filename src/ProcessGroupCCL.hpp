@@ -167,6 +167,8 @@ public:
   static void cclInitOnce();
   static void cclFini();
 
+  ccl::shared_ptr_class<ccl::kvs> get_kvs();
+
   // Store that is used to exchange information between processes.
   std::shared_ptr<Store> store_;
   std::chrono::milliseconds op_timeout_millis;

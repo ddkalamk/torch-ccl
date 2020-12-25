@@ -48,7 +48,9 @@ static std::once_flag cclInitOnceFlag;
 
 void checkRank(int rank, int size)
 {
-  TORCH_CHECK((rank >= 0) && (rank < size), "unexpected rank");
+  if (!((rank >= 0) && (rank < size))) {
+    throw std::invalid_argument("unexpected rank");
+  }
 }
 
 } // namespace
@@ -81,39 +83,43 @@ std::shared_ptr<ProcessGroup> ProcessGroupCCL::createProcessGroupCCL(
 
 ProcessGroupCCL::ProcessGroupCCL(const std::shared_ptr<Store>& store, int rank, int size, const std::chrono::milliseconds& op_time_out)
     : ProcessGroup(rank, size), store_(store), op_timeout_millis(op_time_out),
-      kvs([=](){
-        ccl::shared_ptr_class<ccl::kvs> kvs;
-
-        // Each process group is with different store, so we use the unique key for
-        // broadcast the bootstrap network information.
-        std::string storeKey = "ccl_kvs";
-
-        // Rank 0 broadcast the bootstrap network information to other ranks
-        if (rank == 0) {
-          kvs = ccl::create_main_kvs();
-          ccl::kvs::address_type main_addr = kvs->get_address();
-          auto ccl_kvs_addr = std::vector<uint8_t>(main_addr.begin(), main_addr.end());
-          store_->set(storeKey, ccl_kvs_addr);
-        }
-        else {
-          auto ccl_kvs_addr = store_->get(storeKey);
-          if (ccl_kvs_addr.size() != ccl::kvs::address_max_size) {
-            throw std::runtime_error(
-              "Unexpected ccl kvs addr from the store\n");
-          }
-          ccl::kvs::address_type main_addr;
-          std::copy_n(std::make_move_iterator(ccl_kvs_addr.begin()),
-                      ccl::kvs::address_max_size,
-                      main_addr.begin());
-          kvs = ccl::create_kvs(main_addr);
-        }
-        return kvs;
-      }())
-{
-}
+      kvs(nullptr)
+{}
 
 ProcessGroupCCL::~ProcessGroupCCL()
 {
+}
+
+ccl::shared_ptr_class<ccl::kvs> ProcessGroupCCL::get_kvs() {
+  ccl::shared_ptr_class<ccl::kvs>& kvs = this->kvs;
+
+  if (kvs)
+    return kvs;
+  // Each process group is with different store, so we use the unique key for
+  // broadcast the bootstrap network information.
+  std::string storeKey = "ccl_kvs";
+
+  // Rank 0 broadcast the bootstrap network information to other ranks
+  if (getRank() == 0) {
+    kvs = ccl::create_main_kvs();
+    ccl::kvs::address_type main_addr = kvs->get_address();
+    auto ccl_kvs_addr = std::vector<uint8_t>(main_addr.begin(), main_addr.end());
+    store_->set(storeKey, ccl_kvs_addr);
+  }
+  else {
+    auto ccl_kvs_addr = store_->get(storeKey);
+    if (ccl_kvs_addr.size() != ccl::kvs::address_max_size) {
+      throw std::runtime_error(
+              "Unexpected ccl kvs addr from the store\n");
+    }
+    ccl::kvs::address_type main_addr;
+    std::copy_n(std::make_move_iterator(ccl_kvs_addr.begin()),
+                ccl::kvs::address_max_size,
+                main_addr.begin());
+    kvs = ccl::create_kvs(main_addr);
+  }
+
+  return kvs;
 }
 
 std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::broadcast(

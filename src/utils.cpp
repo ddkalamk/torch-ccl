@@ -14,13 +14,9 @@ std::map<c10d::ReduceOp, ccl::reduction> cclOps =
 
 // Get the deviceList String from the list of devices
 std::string get_key_from_devs(const std::vector<at::Device>& devices) {
-  std::string deviceList;
+  std::string deviceList = DeviceTypeName(devices[0].type(), /* lower case */ true) + ":";
   for (auto& device : devices) {
-    if (deviceList.empty()) {
-      deviceList = std::to_string(device.index());
-    } else {
-      deviceList += "," + std::to_string(device.index());
-    }
+    deviceList.append(std::to_string(device.index()) + ",");
   }
   return deviceList;
 }

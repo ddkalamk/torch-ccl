@@ -202,7 +202,7 @@ Comms& get_ccl_comms(c10d::ProcessGroupCCL& pg_ccl, const std::string& devices_k
   }
 
   ccl::vector_class<ccl::communicator> cpu_comms;
-  cpu_comms.emplace_back(ccl::create_communicator(pg_ccl.getSize(), pg_ccl.getRank(), pg_ccl.kvs));
+  cpu_comms.emplace_back(ccl::create_communicator(pg_ccl.getSize(), pg_ccl.getRank(), pg_ccl.get_kvs()));
   std::shared_ptr<Comms> cpu_comms_ptr = std::make_shared<Comms>(cpu_comms);
   pg_ccl.ccl_comms.emplace(devices_key, cpu_comms_ptr);
 
