@@ -1,6 +1,12 @@
+import os
 import sys
 import warnings
 from .version import __version__, build_type, git_version
+
+cwd = cwd = os.path.dirname(os.path.abspath(__file__))
+
+FI_PROVIDER_PATH = os.path.join(cwd, "lib/prov")
+os.environ['FI_PROVIDER_PATH'] = FI_PROVIDER_PATH
 
 from . import _C as occl_lib
 
