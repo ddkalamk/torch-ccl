@@ -239,9 +239,10 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> make_work_ccl(const std::vector<I
   return ret_ptr;
 }
 
-template <typename comm_t, typename fn, typename pre_process, typename post_process, typename input_t, typename output_t>
+template <Comms& (*get_ccl_fn)(c10d::ProcessGroupCCL& pg_ccl, const std::string& devices_key, const std::vector<at::Device>& devices),
+          typename fn, typename pre_process, typename post_process, typename input_t, typename output_t>
 std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> collective(
-  CCLCommsCollector<comm_t>& ccl_comms,
+  ProcessGroupCCL& pg_ccl,
   std::vector<input_t>& inputs,
   std::vector<output_t>& outputs,
   fn fun,
@@ -253,9 +254,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> collective(
 
   const auto devices = get_device_list(inputs);
   const auto key = get_key_from_devs(devices);
-  auto& comms = ccl_comms.get_ccl_comms(key, devices);
-  // First let CCL streams wait for computing kernel on the input tensors's finished.
-  comms.sync_streams(devices);
+  auto& comms = get_ccl_fn(pg_ccl, key, devices);
 
   std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> work;
   work = make_work_ccl(inputs, outputs, fun, comms, attr);
@@ -263,14 +262,15 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> collective(
   return work;
 }
 
-template <typename comm_t, typename fn, typename input_t, typename output_t>
+template <Comms& (*get_ccl_fn)(c10d::ProcessGroupCCL& pg_ccl, const std::string& devices_key, const std::vector<at::Device>& devices),
+          typename fn, typename input_t, typename output_t>
 std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> collective(
-  CCLCommsCollector<comm_t>& ccl_comms,
+  ProcessGroupCCL& pg_ccl,
   std::vector<input_t>& inputs,
   std::vector<output_t>& outputs,
   fn fun) {
-  return collective(
-    ccl_comms,
+  return collective<get_ccl_fn>(
+    pg_ccl,
     inputs,
     outputs,
     fun,

@@ -63,9 +63,6 @@ void ProcessGroupCCL::cclFini()
 void ProcessGroupCCL::cclInitOnce()
 {
   std::call_once(cclInitOnceFlag, []() {
-    /* initial the at once */
-    ccl::init();
-
     if (std::atexit(ProcessGroupCCL::cclFini))
     {
         throw std::runtime_error("failed to register the CCL exit handler");
@@ -87,6 +84,8 @@ ProcessGroupCCL::ProcessGroupCCL(const std::shared_ptr<Store>& store, int rank, 
       kvs([=](){
         ccl::shared_ptr_class<ccl::kvs> kvs;
 
+        // Each process group is with different store, so we use the unique key for
+        // broadcast the bootstrap network information.
         std::string storeKey = "ccl_kvs";
 
         // Rank 0 broadcast the bootstrap network information to other ranks

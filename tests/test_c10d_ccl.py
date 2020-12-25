@@ -24,7 +24,6 @@ class ProcessGroupCCLTest(MultiProcessTestCase):
             work = pg.broadcast(xs, opts)
             work.wait()
 
-        print('rank {} start bc'.format(self.rank))
         # for every root rank
         for dev_type in [cpu_device]:
             for rt in range(self.world_size):

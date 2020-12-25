@@ -167,24 +167,32 @@ public:
   static void cclInitOnce();
   static void cclFini();
 
-  // Store that is used to exchange ccl kvs
+  // Store that is used to exchange information between processes.
   std::shared_ptr<Store> store_;
   std::chrono::milliseconds op_timeout_millis;
-
-  // ID of this process group
-  std::string processGroupID_;
-
-  // Group Prefix and ID of this process group
-  std::string groupPgID_;
-
+  // ccl kvs to identify the community.
   ccl::shared_ptr_class<ccl::kvs> kvs;
 
-  // processGroupID tracking
-  static std::mutex pgTrackingLock_;
-
-  static std::unordered_map<std::string, ssize_t> processGroupCounterMap_;
-
-  static std::unordered_map<std::string, ssize_t> pgUniqueNCCLIDCnt_;
+  // The CCL communicator that the process group has cached.
+  // The key is a list of devices that an operation is operating on
+  // The devices are stored in a device sequence and the cache CCL
+  // communicator is associated with this device sequence
+  //
+  // e.g. If the process group op only uses device 0, then the value of
+  // the used device string stored (value of the hashmap) would be "0".
+  //
+  //      If the process group op uses device 0 - 7 and the each tensor of the
+  //      input tensor list is on device, 0, 1, 2, 3, 4, 5, 6, 7 separately,
+  //      then the value of the used device string (key) stored would be
+  //      "0,1,2,3,4,5,6,7"
+  //
+  //      If the process group op uses device 0 - 7 and the each tensor of the
+  //      input tensor list is on device, 0, 4, 5, 6, 7, 1, 2, 3 separately,
+  //      then the value of the used device string stored would be
+  //      "0,4,5,6,7,1,2,3"
+  //
+  //      Note that the order of the device for the tensor list matters.
+  std::unordered_map<std::string, std::shared_ptr<torch_ccl::Comms>> ccl_comms;
 };
 
 
