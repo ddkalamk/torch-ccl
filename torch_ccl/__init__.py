@@ -8,10 +8,10 @@ cwd = cwd = os.path.dirname(os.path.abspath(__file__))
 FI_PROVIDER_PATH = os.path.join(cwd, "lib/prov")
 os.environ['FI_PROVIDER_PATH'] = FI_PROVIDER_PATH
 
-from . import _C as occl_lib
+from . import _C as ccl_lib
 
 __all__ = []
-__all__ += [name for name in dir(occl_lib)
+__all__ += [name for name in dir(ccl_lib)
             if name[0] != '_' and
             not name.endswith('Base')]
 
