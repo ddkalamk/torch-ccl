@@ -1,7 +1,7 @@
 import os
 import sys
 import warnings
-from .version import __version__, build_type, git_version
+from .version import __version__, git_version
 
 cwd = cwd = os.path.dirname(os.path.abspath(__file__))
 

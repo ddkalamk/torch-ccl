@@ -1,7 +1,4 @@
 # DEBUG build with debug
-
-# USE_SYSTEM_ONECCL -  build the torch_ccl library support the sycl
-
 import os
 import sys
 import pathlib
@@ -15,7 +12,6 @@ from setuptools.command.build_ext import build_ext
 from distutils.command.clean import clean
 from distutils.version import LooseVersion
 from tools.setup.cmake import CMakeExtension
-
 
 # Constant known variables used throughout this file
 cwd = os.path.dirname(os.path.abspath(__file__))
@@ -64,11 +60,16 @@ class BuildCMakeExt(build_ext):
     """
     Builds using cmake instead of the python setuptools implicit build
     """
-    def build_extension(self, ext):
-        if isinstance(ext, CMakeExtension):
+    def run(self):
+        """
+        Perform build_cmake before doing the 'normal' stuff
+        """
+        cmake_extensions = [ext for ext in self.extensions if isinstance(ext, CMakeExtension)]
+        for ext in cmake_extensions:
             self.build_cmake(ext)
-        else:
-            super(BuildCMakeExt, self).build_extension(ext)
+
+        self.extensions = [ext for ext in self.extensions if not isinstance(ext, CMakeExtension)]
+        super(BuildCMakeExt, self).run()
 
     def build_cmake(self, extension: CMakeExtension):
         """
@@ -157,16 +158,16 @@ def get_python_c_module():
     def make_relative_rpath(path):
         return '-Wl,-rpath,$ORIGIN/' + path
 
-    c_module = Extension("torch_ccl._C",
-                  libraries=main_libraries,
-                  sources=main_sources,
-                  language='c',
-                  extra_compile_args=main_compile_args + extra_compile_args,
-                  include_dirs=include_dirs,
-                  library_dirs=library_dirs,
-                  extra_link_args=extra_link_args + main_link_args + [make_relative_rpath('lib')])
+    _c_module = Extension("torch_ccl._C",
+                          libraries=main_libraries,
+                          sources=main_sources,
+                          language='c',
+                          extra_compile_args=main_compile_args + extra_compile_args,
+                          include_dirs=include_dirs,
+                          library_dirs=library_dirs,
+                          extra_link_args=extra_link_args + main_link_args + [make_relative_rpath('lib')])
 
-    return c_module
+    return _c_module
 
 
 if __name__ == '__main__':
@@ -175,19 +176,20 @@ if __name__ == '__main__':
     cmake_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "CMakeLists.txt")
     modules = [CMakeExtension("libtorch_ccl", cmake_file), c_module]
     setup(
-      name='torch_ccl',
-      version=version,
-      ext_modules=modules,
-      packages=['torch_ccl'],
-      package_data={
-          'torch_ccl': [
-              '*.py',
-              '*/*.h',
-              '*/*.hpp',
-              'lib/*.so*',
-              ]},
-      cmdclass={
-          'build_ext': BuildCMakeExt,
-          'clean': Clean,
-      }
+        name='torch_ccl',
+        version=version,
+        ext_modules=modules,
+        packages=['torch_ccl'],
+        install_requires=['torch'],
+        package_data={
+            'torch_ccl': [
+                '*.py',
+                '*/*.h',
+                '*/*.hpp',
+                'lib/*.so*',
+            ]},
+        cmdclass={
+            'build_ext': BuildCMakeExt,
+            'clean': Clean,
+        }
     )
