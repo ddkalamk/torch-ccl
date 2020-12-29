@@ -11,6 +11,10 @@ from setuptools import setup, Extension, distutils
 from setuptools.command.build_ext import build_ext
 from distutils.command.clean import clean
 from tools.setup.cmake import CMakeExtension
+from tools.setup.env import get_compiler
+
+# Constant known variables used throughout this file
+RUNTIME = 'dpcpp'
 
 # Constant known variables used throughout this file
 CWD = os.path.dirname(os.path.abspath(__file__))
@@ -91,6 +95,17 @@ class BuildCMakeExt(build_ext):
             'PYTORCH_INCLUDE_DIRS': CMakeExtension.convert_cmake_dirs(include_paths()),
             'PYTORCH_LIBRARY_DIRS': CMakeExtension.convert_cmake_dirs(library_paths()),
         }
+
+        if RUNTIME == "dpcpp":
+            build_options['COMPUTE_RUNTIME'] = str(RUNTIME)
+            from torch_ipex import include_paths as ipex_include_paths
+            from torch_ipex import library_paths as ipex_library_paths
+            build_options['IPEX_INCLUDE_DIRS'] = CMakeExtension.convert_cmake_dirs(ipex_include_paths())
+            build_options['IPEX_LIBRARY_DIRS'] = CMakeExtension.convert_cmake_dirs(ipex_library_paths())
+
+        cc, cxx = get_compiler(RUNTIME)
+        build_options['CMAKE_C_COMPILER'] = cc
+        build_options['CMAKE_CXX_COMPILER'] = cxx
 
         extension.generate(build_options, my_env, build_dir, install_dir)
 

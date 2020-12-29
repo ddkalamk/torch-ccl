@@ -11,7 +11,7 @@ from setuptools import Extension
 from collections import defaultdict
 
 from . import which
-from .env import BUILD_DIR, check_env_flag, _get_complier
+from .env import BUILD_DIR, check_env_flag
 # from .numpy_ import USE_NUMPY, NUMPY_INCLUDE_DIR
 
 
@@ -93,12 +93,11 @@ def get_cmake_cache_variables_from_file(cmake_cache_file):
 
 class CMakeExtension(Extension):
     """CMake extension"""
-    def __init__(self, name, cmake_file, runtime='native'):
+    def __init__(self, name, cmake_file):
         super().__init__(name, [])
         self.build_dir = BUILD_DIR
         self.cmake_file = cmake_file
         self._cmake_command = CMakeExtension._get_cmake_command()
-        self.runtime = runtime
         self.debug = True
         self.cmake_dir = os.path.dirname(cmake_file)
 
@@ -197,9 +196,6 @@ class CMakeExtension(Extension):
                 build_options['CMAKE_BUILD_TYPE'] = 'Release'
         build_options['CMAKE_INSTALL_PREFIX'] = install_dir
 
-        cc, cxx = _get_complier(self.runtime)
-        CMakeExtension.defines(cmake_args, CMAKE_C_COMPILER=cc)
-        CMakeExtension.defines(cmake_args, CMAKE_CXX_COMPILER=cxx)
         CMakeExtension.defines(cmake_args, **build_options)
         if os.path.exists(self._cmake_cache_file):
             try:

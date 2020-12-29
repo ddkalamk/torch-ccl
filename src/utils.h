@@ -35,13 +35,14 @@
 #include <ATen/detail/FunctionTraits.h>
 #include <ATen/record_function.h>
 #include <c10d/Types.hpp>
-
+#include <unistd.h>
 #define CCL_CHECK(cmd)                                               \
   do {                                                               \
     try {                                                            \
         cmd;                                                         \
     }                                                                \
-    catch (std::runtime_error& e) {                                  \
+    catch (ccl::exception& e) {                                      \
+      e.what();                                                      \
       throw e;                                                       \
     }                                                                \
   }while(0)
@@ -171,9 +172,9 @@ public:
   {
     if (!rets.empty()) {
       std::cerr << "attempted destruction of WorkCCL before work has completed, "
-                << "terminating the program."
+                << "waiting the request."
                 << std::endl;
-      std::terminate();
+      wait(std::chrono::milliseconds(0));
     }
   }
 

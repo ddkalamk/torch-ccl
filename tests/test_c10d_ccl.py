@@ -257,5 +257,41 @@ class ProcessGroupCCLTest(MultiProcessTestCase):
     def test_alltoall_basics(self):
         self._test_all_to_all_helper(lambda t: t.clone())
 
+class ProcessGroupCCLDPCPPTest(MultiProcessTestCase):
+
+    def setUp(self):
+        super(ProcessGroupCCLDPCPPTest, self).setUp()
+        self._fork_processes()
+
+
+    def _test_broadcast_basics(self, fn):
+        store = c10d.FileStore(self.file_name, self.world_size)
+        pg = c10d.ProcessGroupCCL(store, self.rank, self.world_size)
+
+        def broadcast(xs, rootRank, rootTensor):
+            opts = c10d.BroadcastOptions()
+            opts.rootRank = rootRank
+            opts.rootTensor = rootTensor
+            work = pg.broadcast(xs, opts)
+            work.wait()
+
+        # Every rank is root once
+        for i in range(self.world_size):
+            # Run with 1 input tensor
+            x = fn(torch.tensor([self.rank], device='xpu'))
+            broadcast([x], i, 0)
+            # TODO(#38095): Replace assertEqualIgnoreType. See issue #38095
+            self.assertEqualIgnoreType(torch.tensor([i]), x)
+
+        # Test overloaded convenience function
+        x = torch.tensor([self.rank + 1.0], device='xpu')
+        work = pg.broadcast(x, root=0)
+        work.wait()
+        self.assertEqual(torch.tensor([1.0]), x)
+
+    def test_broadcast_basics(self):
+        self._test_broadcast_basics(lambda t: t.clone())
+
+
 if __name__ == '__main__':
     run_tests()
