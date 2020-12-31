@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, Intel Corporation
+ * Copyright (c) 2020-2021, Intel Corporation
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,8 +29,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef TORCH_CCL_CCL_COMM_COLLECTOR_H
-#define TORCH_CCL_CCL_COMM_COLLECTOR_H
+#pragma once
 
 #include <c10/core/Device.h>
 #include <oneapi/ccl.hpp>
@@ -56,7 +55,7 @@ public:
   Comms &operator=(const Comms &) = delete;
 
   // Move constructable
-  Comms(Comms &&other) : comms(std::move(other.comms)), streams(other.streams) {}
+  Comms(Comms &&other) : comms(std::move(other.comms)), streams(std::move(other.streams)) {}
 
   // Move assignable
   Comms &operator=(Comms &&other) {
@@ -73,4 +72,3 @@ public:
 };
 
 }
-#endif //TORCH_CCL_CCL_COMM_COLLECTOR_H

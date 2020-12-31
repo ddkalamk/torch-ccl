@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, Intel Corporation
+ * Copyright (c) 2020-2021, Intel Corporation
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,13 +29,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef TORCH_CCL_INIT_H
-#define TORCH_CCL_INIT_H
+#pragma once
 
 #include <pybind11/pybind11.h>
 
 #define TORCH_CCL_CPP_API __attribute__ ((visibility ("default")))
 
 void torch_ccl_python_init(pybind11::module &m);
-
-#endif //TORCH_CCL_INIT_H

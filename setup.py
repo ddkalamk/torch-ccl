@@ -28,7 +28,8 @@ def check_file(f):
 # all the work we need to do _before_ setup runs
 def create_version():
     """Create the version string for torch-ccl"""
-    package_name = os.getenv('OCCL_PACKAGE_NAME', 'torch-ccl')
+    cwd = os.path.dirname(os.path.abspath(__file__))
+    package_name = os.getenv('CCL_PACKAGE_NAME', 'torch-ccl')
     version = open('version.txt', 'r').read().strip()
     sha = 'Unknown'
 

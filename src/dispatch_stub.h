@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, Intel Corporation
+ * Copyright (c) 2020-2021, Intel Corporation
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,8 +29,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef TORCH_CCL_DISPATCH_STUBS_H
-#define TORCH_CCL_DISPATCH_STUBS_H
+#pragma once
 
 #include "ProcessGroupCCL.hpp"
 
@@ -213,5 +212,3 @@ private:
 };
 
 }
-
-#endif //TORCH_CCL_DISPATCH_STUBS_H
