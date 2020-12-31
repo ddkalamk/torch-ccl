@@ -58,16 +58,6 @@ c10::DeviceType check_tensors_properties(const std::vector<at::Tensor>& tensors)
   return dev_type;
 }
 
-// Get the list of devices from list of tensors
-std::vector<at::Device> get_device_list(const std::vector<std::vector<at::Tensor>>& tensor_lists) {
-  std::vector<at::Device> res;
-  res.reserve(tensor_lists.size());
-  for (auto& tensors : tensor_lists) {
-    res.push_back(tensors[0].device());
-  }
-  return res;
-}
-
 Comms& get_ccl_comms(c10d::ProcessGroupCCL& pg_ccl, const std::string& devices_key, const std::vector<at::Device>& devices) {
   // Sanity check
   if (devices_key.empty()) {
