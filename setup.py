@@ -14,9 +14,6 @@ from tools.setup.cmake import CMakeExtension
 from tools.setup.env import get_compiler
 
 # Constant known variables used throughout this file
-RUNTIME = 'dpcpp'
-
-# Constant known variables used throughout this file
 CWD = os.path.dirname(os.path.abspath(__file__))
 TORCH_CCL_PATH = os.path.join(CWD, "torch_ccl")
 
@@ -96,14 +93,17 @@ class BuildCMakeExt(build_ext):
             'PYTORCH_LIBRARY_DIRS': CMakeExtension.convert_cmake_dirs(library_paths()),
         }
 
-        if RUNTIME == "dpcpp":
-            build_options['COMPUTE_RUNTIME'] = str(RUNTIME)
-            from torch_ipex import include_paths as ipex_include_paths
-            from torch_ipex import library_paths as ipex_library_paths
-            build_options['IPEX_INCLUDE_DIRS'] = CMakeExtension.convert_cmake_dirs(ipex_include_paths())
-            build_options['IPEX_LIBRARY_DIRS'] = CMakeExtension.convert_cmake_dirs(ipex_library_paths())
+        runtime = 'gcc'
+        if 'COMPUTE_RUNTIME' in os.environ:
+            if os.environ['COMPUTE_RUNTIME'] == 'dpcpp':
+                runtime = 'dpcpp'
+                build_options['COMPUTE_RUNTIME'] = os.environ['COMPUTE_RUNTIME']
+                from torch_ipex import include_paths as ipex_include_paths
+                from torch_ipex import library_paths as ipex_library_paths
+                build_options['IPEX_INCLUDE_DIRS'] = CMakeExtension.convert_cmake_dirs(ipex_include_paths())
+                build_options['IPEX_LIBRARY_DIRS'] = CMakeExtension.convert_cmake_dirs(ipex_library_paths())
 
-        cc, cxx = get_compiler(RUNTIME)
+        cc, cxx = get_compiler(runtime)
         build_options['CMAKE_C_COMPILER'] = cc
         build_options['CMAKE_CXX_COMPILER'] = cxx
 

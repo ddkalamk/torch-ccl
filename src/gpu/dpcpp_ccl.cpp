@@ -214,7 +214,6 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> XPUCCLStubs::broadcast_(std::vect
                                                                        const BroadcastOptions &opts,
                                                                        ProcessGroupCCL& pg_ccl) {
   const int root = opts.rootRank * tensors.size() + opts.rootTensor;
-  const int rank = pg_ccl.getRank();
   std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> work;
   work = collective<get_ccl_comms>(
     pg_ccl,
@@ -229,8 +228,8 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> XPUCCLStubs::broadcast_(std::vect
 
       ccl::event ret_evt;
       CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "torch_ccl::xpu::broadcast", [&] {
-          CCL_CHECK(ret_evt = ccl::broadcast(input.data_ptr<scalar_t>(), (size_t)input.numel(), root,
-                                   comm, stream, attr) );
+        CCL_CHECK(ret_evt = ccl::broadcast(input.data_ptr<scalar_t>(), (size_t)input.numel(), root,
+                                 comm, stream, attr) );
       });
       return ret_evt;
     });
