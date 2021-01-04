@@ -195,8 +195,10 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> XPUCCLStubs::allreduce_(std::vect
 
       ccl::event ret_evt;
       CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "torch_ccl::xpu::allreduce", [&] {
-          ret_evt = ccl::allreduce(input.data_ptr<scalar_t>(), output.data_ptr<scalar_t>(),
-          (size_t)input.numel(), cclOps.at(opts.reduceOp), comm, stream, attr);
+        call_with_lock(c10d::ProcessGroupCCL::globalMutex, [&](){
+          CCL_CHECK(ret_evt = ccl::allreduce(input.data_ptr<scalar_t>(), output.data_ptr<scalar_t>(),
+                                                  (size_t)input.numel(), cclOps.at(opts.reduceOp), comm, stream, attr););
+        });
     });
     return ret_evt;
   });
@@ -223,13 +225,15 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> XPUCCLStubs::reduce_(std::vector<
 
       ccl::event ret_evt;
       CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "torch_ccl::xpu::broadcast", [&] {
-        ret_evt = ccl::reduce(input.data_ptr<scalar_t>(),
-                              output.data_ptr<scalar_t>(),
-                              (size_t)input.numel(),
-                              cclOps.at(opts.reduceOp),
-                              root,
-                              comm,
-                              stream);
+        call_with_lock(c10d::ProcessGroupCCL::globalMutex, [&]() {
+          CCL_CHECK(ret_evt = ccl::reduce(input.data_ptr<scalar_t>(),
+                                  output.data_ptr<scalar_t>(),
+                                  (size_t) input.numel(),
+                                  cclOps.at(opts.reduceOp),
+                                  root,
+                                  comm,
+                                  stream););
+        });
       });
       return ret_evt;
 
@@ -256,8 +260,10 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> XPUCCLStubs::broadcast_(std::vect
 
       ccl::event ret_evt;
       CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "torch_ccl::xpu::broadcast", [&] {
-        CCL_CHECK(ret_evt = ccl::broadcast(input.data_ptr<scalar_t>(), (size_t)input.numel(), root,
-                                 comm, stream, attr) );
+        call_with_lock(c10d::ProcessGroupCCL::globalMutex, [&]() {
+          CCL_CHECK(ret_evt = ccl::broadcast(input.data_ptr<scalar_t>(), (size_t)input.numel(), root,
+                                   comm, stream, attr););
+        });
       });
       return ret_evt;
     });
@@ -298,12 +304,14 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> XPUCCLStubs::allgather_(std::vect
                           return t.data_ptr<scalar_t>();
                        });
 
-        ret_evt = ccl::allgatherv(input.data_ptr<scalar_t>(),
-                                  (size_t)input.numel(),
-                                  recvBufs,
-                                  recvCounts,
-                                  comm,
-                                  stream);
+        call_with_lock(c10d::ProcessGroupCCL::globalMutex, [&]() {
+          CCL_CHECK(ret_evt = ccl::allgatherv(input.data_ptr<scalar_t>(),
+                                    (size_t) input.numel(),
+                                    recvBufs,
+                                    recvCounts,
+                                    comm,
+                                    stream););
+        });
       });
 
       return ret_evt;
