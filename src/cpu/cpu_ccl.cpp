@@ -201,7 +201,10 @@ Comms& get_ccl_comms(c10d::ProcessGroupCCL& pg, const std::string& devices_key, 
   }
 
   ccl::vector_class<ccl::communicator> cpu_comms;
-  cpu_comms.emplace_back(ccl::create_communicator(pg.getSize(), pg.getRank(), pg.get_kvs()));
+  cpu_comms.emplace_back(
+    call_with_lock(c10d::ProcessGroupCCL::globalMutex, [&](){
+      return ccl::create_communicator(pg.getSize(), pg.getRank(), pg.get_kvs());})
+  );
   std::shared_ptr<Comms> cpu_comms_ptr = std::make_shared<Comms>(cpu_comms);
   pg.ccl_comms.emplace(devices_key, cpu_comms_ptr);
 
@@ -301,7 +304,7 @@ public:
 };
 
 template<typename RunF>
-class cpu_completion_callback : public callback_context {
+class cpu_completion_callback final : public callback_context {
 public:
   cpu_completion_callback(RunF cb): f(cb) {};
   void run_completion_hook(
@@ -360,12 +363,14 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allreduce_(std::vecto
             ccl::event ret_evt;
 
             CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "torch_ccl::cpu::allreduce", [&] {
-              ret_evt = ccl::allreduce(input.data_ptr<scalar_t>(),
-                                       output.data_ptr<scalar_t>(),
-                                       (size_t) input.numel(),
-                                       cclOps.at(opts.reduceOp),
-                                       comm,
-                                       attr);
+              call_with_lock(c10d::ProcessGroupCCL::globalMutex, [&](){
+                ret_evt = ccl::allreduce(input.data_ptr<scalar_t>(),
+                                         output.data_ptr<scalar_t>(),
+                                         (size_t) input.numel(),
+                                         cclOps.at(opts.reduceOp),
+                                         comm,
+                                         attr);
+              });
             });
 
             return ret_evt;
@@ -418,6 +423,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allreduce_(std::vecto
             attr.set<ccl::sparse_allreduce_attr_id::coalesce_mode>(sparseCoalesceMode);
 
 
+          call_with_lock(c10d::ProcessGroupCCL::globalMutex, [&](){
             ret_evt = ccl::preview::sparse_allreduce(indices.data_ptr(),
                                                   (size_t)indices.numel(),
                                                   values.data_ptr(),
@@ -428,6 +434,8 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allreduce_(std::vecto
                                                   cclOps.at(opts.reduceOp),
                                                   comm,
                                                   attr);
+          });
+
           return std::make_tuple(std::move(ret_evt), cpu_cb_ptr);
       });
 
@@ -454,13 +462,14 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::reduce_(std::vector<a
          RECORD_FUNCTION("torch_ccl::cpu::reduce", std::vector<c10::IValue>{input});
          ccl::event ret_evt;
          CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "torch_ccl::cpu::reduce", [&] {
-           ret_evt = ccl::reduce(input.data_ptr<scalar_t>(),
-                                 output.data_ptr<scalar_t>(),
-                                 (size_t)input.numel(),
-                                 cclOps.at(opts.reduceOp),
-                                 (size_t)opts.rootRank,
-                                 comm);
-           
+           call_with_lock(c10d::ProcessGroupCCL::globalMutex, [&](){
+             CCL_CHECK(ret_evt = ccl::reduce(input.data_ptr<scalar_t>(),
+                                                   output.data_ptr<scalar_t>(),
+                                                   (size_t)input.numel(),
+                                                   cclOps.at(opts.reduceOp),
+                                                   (int)opts.rootRank,
+                                                   comm););
+           });
          });
          return ret_evt;
          
@@ -487,10 +496,12 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::broadcast_(std::vecto
           RECORD_FUNCTION("torch_ccl::cpu::broadcast", std::vector<c10::IValue>{input});
           ccl::event ret_evt;
           CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "torch_ccl::cpu::broadcast", [&] {
-            ret_evt = ccl::broadcast(input.data_ptr<scalar_t>(),
-                                     (size_t) input.numel(),
-                                     (size_t) opts.rootRank,
-                                     comm);
+            call_with_lock(c10d::ProcessGroupCCL::globalMutex, [&](){
+              CCL_CHECK(ret_evt = ccl::broadcast(input.data_ptr<scalar_t>(),
+                                                 (size_t) input.numel(),
+                                                 (size_t) opts.rootRank,
+                                                 comm));
+            });
           });
           return ret_evt;
     });
@@ -531,11 +542,13 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allgather_(std::vecto
 
           if (flatRes.isFlat) {
             scalar_t* recvBuf = flatRes.firstTensor.data_ptr<scalar_t>();
-            ret_evt = ccl::allgatherv(input.data_ptr<scalar_t>(),
-                                      (size_t) input.numel(),
-                                      recvBuf,
-                                      recvCounts,
-                                      comm);
+            call_with_lock(c10d::ProcessGroupCCL::globalMutex, [&](){
+              ret_evt = ccl::allgatherv(input.data_ptr<scalar_t>(),
+                                        (size_t) input.numel(),
+                                        recvBuf,
+                                        recvCounts,
+                                        comm);
+            });
           }
           else {
             std::vector<scalar_t*> recvBufs;
@@ -543,11 +556,13 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allgather_(std::vecto
                            std::back_inserter(recvBufs),
                            [](const at::Tensor& t) { return t.data_ptr<scalar_t>(); } );
 
-            ret_evt = ccl::allgatherv(input.data_ptr<scalar_t>(),
+            call_with_lock(c10d::ProcessGroupCCL::globalMutex, [&](){
+              ret_evt = ccl::allgatherv(input.data_ptr<scalar_t>(),
                                       (size_t) input.numel(),
                                       recvBufs,
                                       recvCounts,
                                       comm);
+            });
           }
         });
 
@@ -619,12 +634,14 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::gather_(std::vector<s
       
       ccl::event ret_evt;
       CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "gather", [&] {
+          call_with_lock(c10d::ProcessGroupCCL::globalMutex, [&](){
           ret_evt = ccl::alltoallv(input.data_ptr<scalar_t>(),
                        sendCounts,
                        flatOutput.data_ptr<scalar_t>(),
                        recvCounts,
                        cclDatatypes.at(flatOutput.scalar_type()),
                        comm);
+          });
       });
 
 
@@ -715,13 +732,15 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::scatter_(std::vector<
                 "scatter: send and recv count doesn't match");
            
             CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input[0].scalar_type(), "scatter", [&] {
-            ret_evt = ccl::alltoallv(flatInput.data_ptr<scalar_t>(),
-                                     sendCounts,
-                                     output.data_ptr<scalar_t>(),
-                                     recvCounts,
-                                     cclDatatypes.at(output.scalar_type()),
-                                     comm,
-                                     attr);
+              call_with_lock(c10d::ProcessGroupCCL::globalMutex, [&](){
+                ret_evt = ccl::alltoallv(flatInput.data_ptr<scalar_t>(),
+                                         sendCounts,
+                                         output.data_ptr<scalar_t>(),
+                                         recvCounts,
+                                         cclDatatypes.at(output.scalar_type()),
+                                         comm,
+                                         attr);
+                });
             });
             return ret_evt;
 
@@ -745,13 +764,15 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::scatter_(std::vector<
              flatInput = at::empty({0}, output.options());
 
              CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input[0].scalar_type(), "scatter", [&] {
-             ret_evt = ccl::alltoallv(flatInput.data_ptr<scalar_t>(),
-                                      sendCounts,
-                                      output.data_ptr<scalar_t>(),
-                                      recvCounts,
-                                      cclDatatypes.at(output.scalar_type()),
-                                      comm,
-                                      attr);
+               call_with_lock(c10d::ProcessGroupCCL::globalMutex, [&](){
+                 ret_evt = ccl::alltoallv(flatInput.data_ptr<scalar_t>(),
+                                          sendCounts,
+                                          output.data_ptr<scalar_t>(),
+                                          recvCounts,
+                                          cclDatatypes.at(output.scalar_type()),
+                                          comm,
+                                          attr);
+               });
              });
              return ret_evt;
 
@@ -794,12 +815,14 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::alltoall_base_(at::Te
           ccl::communicator& comm) {
             ccl::event ret_evt;
             CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "alltoall_base", [&] {
-              ret_evt = ccl::alltoall(input.data_ptr<scalar_t>(),
-                                      output.data_ptr<scalar_t>(),
-                                      (size_t)output.numel() / comm.size(),
-                                      cclDatatypes.at(output.scalar_type()),
-                                      comm,
-                                      attr);
+                call_with_lock(c10d::ProcessGroupCCL::globalMutex, [&](){
+                  ret_evt = ccl::alltoall(input.data_ptr<scalar_t>(),
+                                          output.data_ptr<scalar_t>(),
+                                          (size_t)output.numel() / comm.size(),
+                                          cclDatatypes.at(output.scalar_type()),
+                                          comm,
+                                          attr);
+                });
               });
             
             return ret_evt;
@@ -819,21 +842,24 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::alltoall_base_(at::Te
           ccl::communicator& comm) {
           ccl::event ret_evt;
           CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "alltoall_base", [&] {
-          std::vector<size_t> sendCounts;
-                 std::transform(inputSplitSizes.begin(), inputSplitSizes.end(),
-                                std::back_inserter(sendCounts),
-                                [](const int64_t t) { return static_cast<size_t>(t); } );
-          std::vector<size_t> recvCounts;
-                 std::transform(outputSplitSizes.begin(), outputSplitSizes.end(),
-                                std::back_inserter(recvCounts),
-                                [](const int64_t t) { return static_cast<size_t>(t); } );   
-          ret_evt = ccl::alltoallv(input.data_ptr<scalar_t>(),
-                                  sendCounts,
-                                  output.data_ptr<scalar_t>(),
-                                  recvCounts,
-                                  cclDatatypes.at(output.scalar_type()),
-                                  comm,
-                                  attr);
+            std::vector<size_t> sendCounts;
+                   std::transform(inputSplitSizes.begin(), inputSplitSizes.end(),
+                                  std::back_inserter(sendCounts),
+                                  [](const int64_t t) { return static_cast<size_t>(t); } );
+            std::vector<size_t> recvCounts;
+                   std::transform(outputSplitSizes.begin(), outputSplitSizes.end(),
+                                  std::back_inserter(recvCounts),
+                                  [](const int64_t t) { return static_cast<size_t>(t); } );
+
+            call_with_lock(c10d::ProcessGroupCCL::globalMutex, [&](){
+              ret_evt = ccl::alltoallv(input.data_ptr<scalar_t>(),
+                                      sendCounts,
+                                      output.data_ptr<scalar_t>(),
+                                      recvCounts,
+                                      cclDatatypes.at(output.scalar_type()),
+                                      comm,
+                                      attr);
+            });
           });
           return ret_evt;
     });
@@ -896,33 +922,35 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::alltoall_(std::vector
           }
       }
       
-     std::string debugName = std::string("alltoall::sz:") + 
+      std::string debugName = std::string("alltoall::sz:") +
                              std::to_string((flatSendCount + flatRecvCount) / (2 * grp_size));
 
 
       ccl::event ret_evt;
       CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(inputs[0].scalar_type(), "alltoall", [&] {
+        call_with_lock(c10d::ProcessGroupCCL::globalMutex, [&](){
           ret_evt = ccl::alltoallv(flatInput.data_ptr<scalar_t>(),
                        sendCounts,
                        flatOutput.data_ptr<scalar_t>(),
                        recvCounts,
                        cclDatatypes.at(flatOutput.scalar_type()),
                        comm);
-           
-         if (!isOutputFlat)
-         {
-             ret_evt.wait();
+        });
 
-             auto flatOutputSplits =
-                 flatOutput.split_with_sizes(c10::IntArrayRef((int64_t*)recvCounts.data(),
-                                             recvCounts.size()), 0);
+        if (!isOutputFlat)
+        {
+           ret_evt.wait();
 
-             for (int i = 0; i < grp_size; i++)
-             {
-                 outputs[i].view({-1}).copy_(flatOutputSplits[i]);
-             }
-         }
-        
+           auto flatOutputSplits =
+               flatOutput.split_with_sizes(c10::IntArrayRef((int64_t*)recvCounts.data(),
+                                           recvCounts.size()), 0);
+
+           for (int i = 0; i < grp_size; i++)
+           {
+               outputs[i].view({-1}).copy_(flatOutputSplits[i]);
+           }
+        }
+
       });
       return ret_evt;
   });
@@ -938,8 +966,12 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::barrier_(const Barrie
   auto& comms_map = pg.ccl_comms;
   for(auto iter = comms_map.begin(); iter != comms_map.end(); iter++){
       for(size_t i =0 ; i < iter->second->comms.size(); i++){
-         work->getEvents().emplace_back(ccl::barrier(iter->second->comms[i]));
-      }
+         work->getEvents().emplace_back(
+                 call_with_lock(c10d::ProcessGroupCCL::globalMutex, [&](){
+                   return ccl::barrier(iter->second->comms[i]);
+                 })
+                 );
+     }
   }
   return work; 
 }

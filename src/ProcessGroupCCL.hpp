@@ -195,7 +195,8 @@ public:
   //
   //      Note that the order of the device for the tensor list matters.
   std::unordered_map<std::string, std::shared_ptr<torch_ccl::Comms>> ccl_comms;
-};
 
+  static std::mutex globalMutex;
+};
 
 } // namespace c10d

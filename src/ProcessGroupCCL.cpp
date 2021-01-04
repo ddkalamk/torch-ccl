@@ -35,14 +35,18 @@
 #include <unistd.h>
 #include <map>
 #include <ATen/record_function.h>
+#include "utils.h"
 
 
 namespace c10d
 {
 
 using torch_ccl::DispatchStub;
+using torch_ccl::call_with_lock;
 
 namespace {
+
+static std::once_flag cclInitOnceFlag;
 
 void checkRank(int rank, int size)
 {
@@ -54,10 +58,12 @@ void checkRank(int rank, int size)
 } // namespace
 
 const int64_t ProcessGroupCCL::OP_TIMEOUT_MILLIS = 10 * 1000;
+std::mutex ProcessGroupCCL::globalMutex;
 
 void ProcessGroupCCL::cclFini()
 {
   DispatchStub::reset_all();
+  std::unique_lock<std::mutex> globalLock(globalMutex);
 }
 
 void ProcessGroupCCL::cclInitOnce()
@@ -99,7 +105,9 @@ ccl::shared_ptr_class<ccl::kvs> ProcessGroupCCL::get_kvs() {
 
   // Rank 0 broadcast the bootstrap network information to other ranks
   if (getRank() == 0) {
-    kvs = ccl::create_main_kvs();
+    call_with_lock(c10d::ProcessGroupCCL::globalMutex, [&]() {
+      kvs = ccl::create_main_kvs();
+    });
     ccl::kvs::address_type main_addr = kvs->get_address();
     auto ccl_kvs_addr = std::vector<uint8_t>(main_addr.begin(), main_addr.end());
     store_->set(storeKey, ccl_kvs_addr);
@@ -114,7 +122,9 @@ ccl::shared_ptr_class<ccl::kvs> ProcessGroupCCL::get_kvs() {
     std::copy_n(std::make_move_iterator(ccl_kvs_addr.begin()),
                 ccl::kvs::address_max_size,
                 main_addr.begin());
-    kvs = ccl::create_kvs(main_addr);
+    call_with_lock(c10d::ProcessGroupCCL::globalMutex, [&]() {
+      kvs = ccl::create_kvs(main_addr);
+    });
   }
 
   return kvs;

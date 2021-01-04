@@ -308,4 +308,10 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> collective(
     [](std::vector<ccl::stream>&) {});
 }
 
+template <typename ccl_fn_type>
+decltype(auto) call_with_lock(std::mutex& lock, ccl_fn_type fn) {
+  std::unique_lock<std::mutex> globalLock(lock);
+  return fn();
+}
+
 }
