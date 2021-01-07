@@ -201,9 +201,10 @@ Comms& get_ccl_comms(c10d::ProcessGroupCCL& pg, const std::string& devices_key, 
   }
 
   ccl::vector_class<ccl::communicator> cpu_comms;
+  auto kvs = pg.get_kvs();
   cpu_comms.emplace_back(
     call_with_lock(c10d::ProcessGroupCCL::globalMutex, [&](){
-      CCL_CHECK(return ccl::create_communicator(pg.getSize(), pg.getRank(), pg.get_kvs()););
+      CCL_CHECK(return ccl::create_communicator(pg.getSize(), pg.getRank(), kvs););
       })
   );
   std::shared_ptr<Comms> cpu_comms_ptr = std::make_shared<Comms>(cpu_comms);
