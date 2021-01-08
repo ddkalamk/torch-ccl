@@ -134,6 +134,8 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::broadcast(
     std::vector<at::Tensor>& tensors,
     const BroadcastOptions& opts)
 {
+  RECORD_FUNCTION("torch_ccl::broadcast", std::vector<c10::IValue>{tensors});
+
   checkRank(opts.rootRank, getSize());
   auto work = DispatchStub::broadcast(tensors, opts, *this);
 
@@ -145,8 +147,9 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allreduce(
   std::vector<at::Tensor>& tensors,
   const AllreduceOptions& opts)
 {
-  auto work = DispatchStub::allreduce(tensors, opts, *this);
+  RECORD_FUNCTION("torch_ccl::allreduce", std::vector<c10::IValue>{tensors});
 
+  auto work = DispatchStub::allreduce(tensors, opts, *this);
   work->run();
   return work;
 }
@@ -162,9 +165,10 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::reduce(
     std::vector<at::Tensor>& tensors,
     const ReduceOptions& opts)
 {
+  RECORD_FUNCTION("torch_ccl::reduce", std::vector<c10::IValue>{tensors});
+
   checkRank(opts.rootRank, getSize());
   auto work = DispatchStub::reduce(tensors, opts, *this);
-
   work->run();
   return work;
 }
@@ -175,9 +179,9 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::allgather(
     std::vector<at::Tensor>& inputTensors,
     const AllgatherOptions& opts)
 {
-  auto work = DispatchStub::allgather(outputTensors, inputTensors, opts, *this);
+  RECORD_FUNCTION("torch_ccl::allgather", std::vector<c10::IValue>({inputTensors, outputTensors}));
 
-  
+  auto work = DispatchStub::allgather(outputTensors, inputTensors, opts, *this);
   work->run();
   return work;
 }
@@ -203,8 +207,9 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::gather(
     std::vector<at::Tensor>& inputTensors,
     const GatherOptions& opts)
 {
-  auto work = DispatchStub::gather(outputTensors, inputTensors, opts, *this);
+  RECORD_FUNCTION("torch_ccl::gather", std::vector<c10::IValue>({inputTensors, outputTensors}));
 
+  auto work = DispatchStub::gather(outputTensors, inputTensors, opts, *this);
   work->run();
   return work;
 }
@@ -214,8 +219,9 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::scatter(
     std::vector<std::vector<at::Tensor>>& inputTensors,
     const ScatterOptions& opts)
 {
-  auto work = DispatchStub::scatter(outputTensors, inputTensors, opts, *this);
+  RECORD_FUNCTION("torch_ccl::scatter", std::vector<c10::IValue>({inputTensors, outputTensors}));
 
+  auto work = DispatchStub::scatter(outputTensors, inputTensors, opts, *this);
   work->run();
   return work;
 }
@@ -235,8 +241,9 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::alltoall_base(
     std::vector<int64_t>& inputSplitSizes,
     const AllToAllOptions& opts)
 {
-  auto work = DispatchStub::alltoall_base(outputTensor, inputTensor, outputSplitSizes, inputSplitSizes, opts, *this);
+  RECORD_FUNCTION("torch_ccl::alltoall_base", std::vector<c10::IValue>({inputTensor, outputTensor}));
 
+  auto work = DispatchStub::alltoall_base(outputTensor, inputTensor, outputSplitSizes, inputSplitSizes, opts, *this);
   work->run();
   return work;
 }
@@ -246,8 +253,9 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupCCL::alltoall(
     std::vector<at::Tensor>& inputTensors,
     const AllToAllOptions& opts)
 {
-  auto work = DispatchStub::alltoall(outputTensors, inputTensors, opts, *this);
+  RECORD_FUNCTION("torch_ccl::alltoall", std::vector<c10::IValue>({inputTensors, outputTensors}));
 
+  auto work = DispatchStub::alltoall(outputTensors, inputTensors, opts, *this);
   work->run();
   return work;
 }
