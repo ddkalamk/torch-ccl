@@ -844,15 +844,25 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::alltoall_base_(at::Te
           ccl::communicator& comm) {
           ccl::event ret_evt;
           CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "alltoall_base", [&] {
-            std::vector<size_t> sendCounts;
-                   std::transform(inputSplitSizes.begin(), inputSplitSizes.end(),
-                                  std::back_inserter(sendCounts),
-                                  [](const int64_t t) { return static_cast<size_t>(t); } );
-            std::vector<size_t> recvCounts;
-                   std::transform(outputSplitSizes.begin(), outputSplitSizes.end(),
-                                  std::back_inserter(recvCounts),
-                                  [](const int64_t t) { return static_cast<size_t>(t); } );
+            c10d::checkSplitSizes(inputSplitSizes, input, grp_size);
+            c10d::checkSplitSizes(outputSplitSizes, output, grp_size);
+           
+            std::vector<size_t> sendCounts(grp_size);
+            std::vector<size_t> recvCounts(grp_size);
+            bool inputSplitsEqual = inputSplitSizes.size() == 0;
+            bool outputSplitsEqual = outputSplitSizes.size() == 0;
 
+            size_t inLen = input.numel();
+            size_t outLen = output.numel();
+            if (inLen) inLen /= (inputSplitsEqual ? grp_size : input.size(0));
+            if (outLen) outLen /= (outputSplitsEqual ? grp_size : output.size(0));
+
+            for (int i = 0; i < grp_size; i++)
+            {
+                sendCounts[i] = (inputSplitsEqual ? inLen : inputSplitSizes[i] * inLen);
+                recvCounts[i] = (outputSplitsEqual ? outLen : outputSplitSizes[i] * outLen);
+            }
+            
             call_with_lock(c10d::ProcessGroupCCL::globalMutex, [&](){
               CCL_CHECK(ret_evt = ccl::alltoallv(input.data_ptr<scalar_t>(),
                                       sendCounts,
