@@ -251,11 +251,6 @@ protected:
                                                             std::vector<at::Tensor>& inputTensors,
                                                             const GatherOptions& opts,
                                                             ProcessGroupCCL& pg) override;
-  
-  std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> scatter_(std::vector<at::Tensor>& outputTensors,
-                                                             std::vector<std::vector<at::Tensor>>& inputTensors,
-                                                             const ScatterOptions& opts,
-                                                             ProcessGroupCCL& pg) override;
 
   std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> alltoall_base_(at::Tensor& outputTensor,
                                                                at::Tensor& inputTensor,
@@ -263,15 +258,15 @@ protected:
                                                                std::vector<int64_t>& inputSplitSizes,
                                                                const AllToAllOptions& opts,
                                                                ProcessGroupCCL& pg) override;
+
   std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> alltoall_(std::vector<at::Tensor>& outputTensors,
                                                              std::vector<at::Tensor>& inputTensors,
                                                              const AllToAllOptions& opts,
                                                              ProcessGroupCCL& pg) override;
+
   std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> barrier_(const BarrierOptions& opts,
                                                                 ProcessGroupCCL& pg) override;
-  
- 
- 
+
   void reset() override {}
 
 private:
@@ -670,120 +665,6 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::gather_(std::vector<s
   return work;
 }
 
-std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::scatter_(std::vector<at::Tensor>& outputTensors,
-                                                             std::vector<std::vector<at::Tensor>>& inputTensors,
-                                                             const ScatterOptions& opts,
-                                                             ProcessGroupCCL& pg){
-
-    RECORD_FUNCTION("torch_ccl::CPU::scatter", std::vector<c10::IValue>({outputTensors}));
-    std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> work;
-    auto grp_size = pg.getSize();
-    auto rank = pg.getRank();
-    checkSingleTensor(outputTensors);
-
-    if (rank != opts.rootRank)
-    {
-        TORCH_CHECK(inputTensors.size() == 0,
-            "scatter: number of input tensors should be 0 "
-            "for non-root");
-    }
-    else
-    {
-        TORCH_CHECK(inputTensors.size() == 1,
-            "scatter: multi-GPU collective is not supported");
-
-        TORCH_CHECK(static_cast<size_t>(grp_size) == inputTensors[0].size(),
-            "scatter: number of input tensors should equal "
-            "to the world size");
-
-        checkSameType(outputTensors[0], inputTensors[0]);
-    }
-    if(rank == opts.rootRank){
-      work = collective<get_ccl_comms>(
-        pg,
-        inputTensors,
-        outputTensors,
-        [=](std::vector<at::Tensor> input,
-            at::Tensor output,
-            ccl::alltoallv_attr attr,
-            ccl::communicator& comm) {
-
-            ccl::event ret_evt;
-            std::vector<size_t> sendCounts(grp_size, 0);
-            std::vector<size_t> recvCounts(grp_size, 0);
-            recvCounts[opts.rootRank] = output.numel();
-            at::Tensor flatInput;
-            int64_t flatSendCount = 0;
-
-            bool isInputFlat =
-                computeLengthsAndCheckAndGetFlat(input,
-                                                 sendCounts, flatInput, flatSendCount);
-
-            if (!isInputFlat)
-            {
-                auto flatInputSplits =
-                    flatInput.split_with_sizes(c10::IntArrayRef((int64_t*)sendCounts.data(),
-                                               sendCounts.size()), 0);
-
-                for (int i = 0; i < grp_size; i++)
-                {
-                    flatInputSplits[i].copy_(input[i].view({-1}));
-                }
-            }
-            TORCH_CHECK(recvCounts[rank] == sendCounts[rank],
-                "scatter: send and recv count doesn't match");
-           
-            CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input[0].scalar_type(), "scatter", [&] {
-              call_with_lock(c10d::ProcessGroupCCL::globalMutex, [&](){
-                CCL_CHECK(ret_evt = ccl::alltoallv(flatInput.data_ptr<scalar_t>(),
-                                         sendCounts,
-                                         output.data_ptr<scalar_t>(),
-                                         recvCounts,
-                                         cclDatatypes.at(output.scalar_type()),
-                                         comm,
-                                         attr););
-                });
-            });
-            return ret_evt;
-
-        });
-
-    }else{
-       work = collective<get_ccl_comms>(
-         pg,
-         outputTensors,
-         outputTensors,
-         [=](at::Tensor input,
-             at::Tensor output,
-             ccl::alltoallv_attr attr,
-             ccl::communicator& comm) {
-
-             ccl::event ret_evt;
-             std::vector<size_t> sendCounts(grp_size, 0);
-             std::vector<size_t> recvCounts(grp_size, 0);
-             recvCounts[opts.rootRank] = output.numel();
-             at::Tensor flatInput;
-             flatInput = at::empty({0}, output.options());
-
-             CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input[0].scalar_type(), "scatter", [&] {
-               call_with_lock(c10d::ProcessGroupCCL::globalMutex, [&](){
-                 CCL_CHECK(ret_evt = ccl::alltoallv(flatInput.data_ptr<scalar_t>(),
-                                          sendCounts,
-                                          output.data_ptr<scalar_t>(),
-                                          recvCounts,
-                                          cclDatatypes.at(output.scalar_type()),
-                                          comm,
-                                          attr););
-               });
-             });
-             return ret_evt;
-
-        });
-   }
-   work->debugName = std::string("torch_ccl::CPU::scatter::sz:") + std::to_string(outputTensors[0].numel());
-   return work;
-
-}
 std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::alltoall_base_(at::Tensor& outputTensor,
                                                              at::Tensor& inputTensor,
                                                              std::vector<int64_t>& outputSplitSizes,

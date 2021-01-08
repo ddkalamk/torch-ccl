@@ -33,6 +33,7 @@
 
 #include "ProcessGroupCCL.hpp"
 #include <ATen/detail/FunctionTraits.h>
+#include <ATen/record_function.h>
 #include <c10d/Types.hpp>
 
 #define CCL_CHECK(cmd)                                               \
@@ -188,6 +189,7 @@ public:
 
   bool wait(std::chrono::milliseconds timeout) override
   {
+    RECORD_FUNCTION("torch_ccl::async_work::wait", std::vector<c10::IValue>());
     for(auto& ret : rets) {
       ccl::event& evt = _get_event_from_ret<ret_t>(ret);
       CCL_CHECK(evt.wait());

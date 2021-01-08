@@ -144,68 +144,6 @@ class ProcessGroupCCLTest(MultiProcessTestCase):
 
     def test_reduce_basics(self):
         self._test_reduce_basics(lambda t: t.clone())
-    
-    def _test_scatter_basics(self, fn):
-        store = c10d.FileStore(self.file_name, self.world_size)
-        pg = c10d.ProcessGroupCCL(store, self.rank, self.world_size)
-       
-        # Preallocate tensors for input/output
-        input = [fn(torch.tensor([self.rank+3])) for _ in range(self.world_size)]
-        outputs = [fn(torch.tensor([-1])) for _ in range(self.world_size)]
-        print("self.rank: ", self.rank, "input: ", input)
-        print("before self.rank: ", self.rank, "output: ", outputs)
-        # Take turns being the scatter root and accumulate work items
-        self.world_size_1 =1 
-        opts = c10d.ScatterOptions()
-        opts.rootRank = 0
-        if 0== self.rank:
-           work = pg.scatter([outputs[0]], [input], opts)
-        else:
-           work = pg.scatter([outputs[0]], [], opts)
-        work.wait()
-        print("self.rank: ", self.rank, "output: ", outputs)
-        opts = c10d.ScatterOptions()
-        opts.rootRank = 1 
-        if 1 == self.rank:
-           work = pg.scatter([outputs[1]], [input], opts)
-        else:
-           work = pg.scatter([outputs[1]], [], opts)
-        work.wait()
-        print("self.rank: ", self.rank, "output: ", outputs)
-        
-        opts = c10d.ScatterOptions()
-        opts.rootRank = 2
-        if 2== self.rank:
-           work = pg.scatter([outputs[2]], [input], opts)
-        else:
-           work = pg.scatter([outputs[2]], [], opts)
-        work.wait()
-        print("self.rank: ", self.rank, "output: ", outputs)
-        opts = c10d.ScatterOptions()
-        opts.rootRank = 3
-        if 3 == self.rank:
-           work = pg.scatter([outputs[3]], [input], opts)
-        else:
-           work = pg.scatter([outputs[3]], [], opts)
-        work.wait()
-        print("self.rank: ", self.rank, "output: ", outputs)
-        #work = []
-        #for i in range(self.world_size_1):
-        #    opts = c10d.ScatterOptions()
-        #    opts.rootRank = i
-        #    if i == self.rank:
-        #        work.append(pg.scatter([outputs[i]], [input], opts))
-        #    else:
-        #        work.append(pg.scatter([outputs[i]], [], opts))
-        #
-        ## Wait for work to complete
-        #for i in range(self.world_size_1):
-        #    work[i].wait()
-        #    print("self.rank: ", self.rank, "output: ", outputs)
-        #    #self.assertEqual(torch.tensor([i+3]), outputs[i])
-
-    def test_scatter_basics(self):
-        self._test_scatter_basics(lambda t: t.clone()) 
      
     def _test_gather_basics(self, fn):
         store = c10d.FileStore(self.file_name, self.world_size)
