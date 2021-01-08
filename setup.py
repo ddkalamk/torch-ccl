@@ -188,6 +188,8 @@ if __name__ == '__main__':
                 '*/*.h',
                 '*/*.hpp',
                 'lib/*.so*',
+                'env/*',
+                'bin/*',
             ]},
         cmdclass={
             'build_ext': BuildCMakeExt,

@@ -7,7 +7,7 @@ This repository holds PyTorch bindings maintained by Intel for the Intel® oneAP
 
 [PyTorch](https://github.com/pytorch/pytorch) is an open-source machine learning framework.
 
-[Intel® oneCCL](https://github.com/oneapi-src/oneCCL) (collective commnications library) is a library for efficient distributed deep learning training implementing such collectives like allreduce, allgather, alltoall. For more information on oneCCL, please refer to the [oneCCL documentation](https://spec.oneapi.com/versions/latest/elements/oneCCL/source/index.html).
+[Intel® oneCCL](https://github.com/oneapi-src/oneCCL) (collective commnications library) is a library for efficient distributed deep learning training implementing such collectives like allreduce, allgather, alltoall. For more information on oneCCL, please refer to the [oneCCL documentation](https://spec.oneapi.com/versions/latest/elements/oneCCL/source/index.html) and [oneCCL specification](https://spec.oneapi.com/versions/latest/elements/oneCCL/source/index.html).
 
 `torch-ccl` module implements PyTorch C10D ProcessGroup API and can be dynamically loaded as external ProcessGroup and only works on Linux platform now.
 
@@ -17,58 +17,35 @@ We recommend Anaconda as Python package management system. The following is the 
    | ``torch`` | ``torch-ccl`` |  
    | :-----:| :---: |  
    |  ``master`` |  ``master``  |
+   | [v1.7.1](https://github.com/pytorch/pytorch/tree/v1.7.1) |  [ccl_torch1.7](https://github.com/intel/torch-ccl/tree/ccl_torch1.7)   | 
    | [v1.6.0](https://github.com/pytorch/pytorch/tree/v1.6.0) |  [ccl_torch1.6](https://github.com/intel/torch-ccl/tree/ccl_torch1.6)   | 
    | [v1.5-rc3](https://github.com/pytorch/pytorch/tree/v1.5.0-rc3) |   [beta09](https://github.com/intel/torch-ccl/tree/beta09)   |
 
-The usage details can be found in the README of corresponding branch. The following part is about the usage of beta09 tag. if you want to use other version of torch-ccl please checkout to that branch(tag). For pytorch-1.5.0-rc3, the [#PR28068](https://github.com/pytorch/pytorch/pull/28068) and [#PR32361](https://github.com/pytorch/pytorch/pull/32361) are need to dynamicall register external ProcessGroup and enable ``alltoall`` collective communication primitive. The patch file about these two PRs is in ``patches`` directory and you can use it directly. 
+The usage details can be found in the README of corresponding branch. The following part is about the usage of v1.7 tag. if you want to use other version of torch-ccl please checkout to that branch(tag). For pytorch-1.5.0-rc3, the [#PR28068](https://github.com/pytorch/pytorch/pull/28068) and [#PR32361](https://github.com/pytorch/pytorch/pull/32361) are need to dynamicall register external ProcessGroup and enable ``alltoall`` collective communication primitive. The patch file about these two PRs is in ``patches`` directory and you can use it directly. 
 
 # Requirements
 
 Python 3.6 or later and a C++14 compiler
 
-pytorch-1.5.0-rc3  branch.
+pytorch-v1.7.1.
 
 # Installation
 
 To install `torch-ccl`:
 
-1. clone [PyTorch](https://github.com/pytorch/pytorch) from source code.
-
-```bash
-   git clone https://github.com/pytorch/pytorch.git
-   cd pytorch 
-   git checkout v1.5.0-rc3
-   cd ../
-```
-2. clone the `torch-ccl`.
+1. clone the `torch-ccl`.
 
 ```bash
    git clone https://github.com/intel/torch-ccl.git && cd torch-ccl 
    git submodule sync 
    git submodule update --init --recursive 
-
+   git apply ./patches/Fix_the_link_path_issue_in_oneCCL.patch
 ```
-3. Install pytorch and torch-ccl
+2. Install torch-ccl
 
 ```bash
-   cd ../pytorch 
-   git apply ../torch-ccl/patches/enable_torch_ccl_for_pytorch1.5.0-rc3.diff
-   git submodule sync
-   git submodule update --init --recursive
-   python setup.py install 
-   cd ../torch-ccl
    python setup.py install
-```    
-4. oneCCL is used as third party repo of torch-ccl but you need to source the oneCCL environment before runing.
-
-```bash
-   source <torch_ccl_path>/ccl/env/setvars.sh
-
-   for example: 
-   torch_ccl_path=$CONDA_PREFIX/lib/python3.7/site-packages/torch_ccl-1.0.1-py3.7-linux-x86_64.egg/
-   source <torch_ccl_path>/ccl/env/setvars.sh
 ```
-
 
 
 # Usage
@@ -100,8 +77,9 @@ model = torch.nn.parallel.DistributedDataParallel(model, ...)
 
 ...
 ```
-
+(torch_ccl is installed along with the MPI toolset.)
 ```
+
 $ source <torch_ccl_path>/ccl/env/setvars.sh
 $ mpirun -n <N> -ppn <PPN> -f <hostfile> python example.py
 ```

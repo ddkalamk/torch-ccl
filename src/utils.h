@@ -189,7 +189,7 @@ public:
 
   bool wait(std::chrono::milliseconds timeout) override
   {
-    RECORD_FUNCTION("torch_ccl::async_work::wait", std::vector<c10::IValue>());
+    RECORD_FUNCTION(std::string("torch_ccl::wait::") + debugName, std::vector<c10::IValue>());
     for(auto& ret : rets) {
       ccl::event& evt = _get_event_from_ret<ret_t>(ret);
       CCL_CHECK(evt.wait());
