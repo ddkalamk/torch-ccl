@@ -1,7 +1,9 @@
 import torch
 import torch_ccl
 from torch.testing._internal.common_utils import run_tests
-from torch.testing._internal.common_distributed import MultiProcessTestCase
+from torch.testing._internal.common_distributed import MultiProcessTestCase, \
+     simple_sparse_reduce_tests
+
 import torch.distributed as c10d
 
 import math
@@ -30,79 +32,10 @@ def simple_reduce_tests(rank, world_size):
         (
             c10d.ReduceOp.MAX,
             torch.tensor([rank + 1.0]),
-            torch.tensor([world_size]),
+            torch.tensor([float(world_size)]),
         ),
     ]
-
-    # Generate tests for BAND.
-    # The bit that is set changes in every iteration to check
-    # that the output changes accordingly.
-    for i in range(4):
-        vin = rank | (1 << i)
-        vout = (1 << i)
-        tests.append(
-            (
-                c10d.ReduceOp.BAND,
-                torch.tensor([vin], dtype=torch.int32),
-                torch.tensor([vout], dtype=torch.int32),
-            ),
-        )
-
-    # Generate tests for BOR.
-    # These emulate a larger world size per iteration by having every
-    # rank contribute multiple values that are pre-OR'ed.
-    for i in range(1, 5):
-        vin = reduce(operator.or_, [rank * i + j for j in range(i)])
-        vout = reduce(operator.or_, range(world_size * i))
-        tests.append(
-            (
-                c10d.ReduceOp.BOR,
-                torch.tensor([vin], dtype=torch.int32),
-                torch.tensor([vout], dtype=torch.int32),
-            ),
-        )
-
-    # Generate tests for XOR.
-    # These emulate a larger world size per iteration by having every
-    # rank contribute multiple values that are pre-XOR'ed.
-    for i in range(1, 5):
-        vin = reduce(operator.xor, [rank * i + j for j in range(i)])
-        vout = reduce(operator.xor, range(world_size * i))
-        tests.append(
-            (
-                c10d.ReduceOp.BXOR,
-                torch.tensor([vin], dtype=torch.int32),
-                torch.tensor([vout], dtype=torch.int32),
-            ),
-        )
-
     return tests
-
-
-def simple_multi_input_reduce_tests(rank, world_size):
-    return [
-        (
-            c10d.ReduceOp.SUM,
-            [torch.tensor([2 * rank + 0.0]), torch.tensor([2 * rank + 1.0])],
-            torch.tensor([float(world_size * (2 * world_size - 1))]),
-        ),
-        (
-            c10d.ReduceOp.PRODUCT,
-            [torch.tensor([2 * rank + 1.0]), torch.tensor([2 * rank + 2.0])],
-            torch.tensor([float(math.factorial(2 * world_size))]),
-        ),
-        (
-            c10d.ReduceOp.MIN,
-            [torch.tensor([2 * rank + 1.0]), torch.tensor([2 * rank + 2.0])],
-            torch.tensor([1.0]),
-        ),
-        (
-            c10d.ReduceOp.MAX,
-            [torch.tensor([2 * rank + 1.0]), torch.tensor([2 * rank + 2.0])],
-            torch.tensor([2 * world_size]),
-        ),
-    ]
-
 
 class ProcessGroupCCLTest(MultiProcessTestCase):
 
@@ -119,7 +52,6 @@ class ProcessGroupCCLTest(MultiProcessTestCase):
         t3 = torch.zeros([2], dtype=torch.float32)
 
         with self.assertRaisesRegex(ValueError, "unexpected rank"):
-
             opts = c10d.BroadcastOptions()
             opts.rootRank = -1
             opts.rootTensor = 0
@@ -145,21 +77,6 @@ class ProcessGroupCCLTest(MultiProcessTestCase):
             # TODO(#38095): Replace assertEqualIgnoreType. See issue #38095
             self.assertEqualIgnoreType(torch.tensor([i]), x)
 
-            # Run with 2 input tensors
-            num = 2
-            for j in range(num):
-                xs = [
-                    fn(torch.tensor([self.rank * num + 0.0])),
-                    fn(torch.tensor([self.rank * num + 1.0])),
-                ]
-
-                broadcast(xs, i, j)
-                # TODO(#38095): Replace assertEqualIgnoreType. See issue #38095
-                self.assertEqualIgnoreType(torch.tensor([i * num + j]), xs[0])
-                # TODO(#38095): Replace assertEqualIgnoreType. See issue #38095
-                self.assertEqualIgnoreType(torch.tensor([i * num + j]), xs[1])
-
-        # Test overloaded convenience function
         x = torch.tensor([self.rank + 1.0])
         work = pg.broadcast(x, root=0)
         work.wait()
@@ -188,7 +105,7 @@ class ProcessGroupCCLTest(MultiProcessTestCase):
     def test_broadcast_stress(self):
         inputs = [torch.tensor([i * self.world_size + self.rank]) for i in range(1000)]
         self._test_broadcast_stress(inputs)
-
+    
     def _test_allreduce_basics(self, fn):
         store = c10d.FileStore(self.file_name, self.world_size)
         pg = c10d.ProcessGroupCCL(store, self.rank, self.world_size)
@@ -201,31 +118,206 @@ class ProcessGroupCCLTest(MultiProcessTestCase):
             tensor = fn(input)
             work = pg.allreduce([tensor], opts)
             work.wait()
+            
             # TODO(#38095): Replace assertEqualIgnoreType. See issue #38095
             self.assertEqualIgnoreType(output, tensor)
 
-        # Multi input tests
-        tests = simple_multi_input_reduce_tests(self.rank, self.world_size)
-        for (op, inputs, output) in tests:
-            opts = c10d.AllreduceOptions()
-            opts.reduceOp = op
-            tensors = [fn(input) for input in inputs]
-            work = pg.allreduce(tensors, opts)
-            work.wait()
-            for tensor in tensors:
-                # TODO(#38095): Replace assertEqualIgnoreType. See issue #38095
-                self.assertEqualIgnoreType(output, tensor)
-
-        # Test overloaded convenience function (defaults to using sum)
-        x = fn(torch.tensor([self.rank + 1.0]))
-        work = pg.allreduce(x)
-        work.wait()
-        self.assertEqual(torch.tensor([float(self.world_size * (self.world_size + 1) / 2)]), x)
-
     def test_allreduce_basics(self):
         self._test_allreduce_basics(lambda t: t.clone())
+    
+    def _test_reduce_basics(self, fn):
+        store = c10d.FileStore(self.file_name, self.world_size)
+        pg = c10d.ProcessGroupCCL(store, self.rank, self.world_size)
+        
+        for (op, input, output) in simple_reduce_tests(self.rank, self.world_size):
 
+            for root in range(self.world_size):
+                opts = c10d.ReduceOptions()
+                opts.reduceOp = op
+                opts.rootRank = root
+                tmp = fn(input)
+                work = pg.reduce([tmp], opts)
+                work.wait()
+                #print(op, " ", input, " " , output)
+                if root == self.rank:
+                    self.assertEqual(output, tmp)
+
+    def test_reduce_basics(self):
+        self._test_reduce_basics(lambda t: t.clone())
+    
+    def _test_scatter_basics(self, fn):
+        store = c10d.FileStore(self.file_name, self.world_size)
+        pg = c10d.ProcessGroupCCL(store, self.rank, self.world_size)
+       
+        # Preallocate tensors for input/output
+        input = [fn(torch.tensor([self.rank+3])) for _ in range(self.world_size)]
+        outputs = [fn(torch.tensor([-1])) for _ in range(self.world_size)]
+        print("self.rank: ", self.rank, "input: ", input)
+        print("before self.rank: ", self.rank, "output: ", outputs)
+        # Take turns being the scatter root and accumulate work items
+        self.world_size_1 =1 
+        opts = c10d.ScatterOptions()
+        opts.rootRank = 0
+        if 0== self.rank:
+           work = pg.scatter([outputs[0]], [input], opts)
+        else:
+           work = pg.scatter([outputs[0]], [], opts)
+        work.wait()
+        print("self.rank: ", self.rank, "output: ", outputs)
+        opts = c10d.ScatterOptions()
+        opts.rootRank = 1 
+        if 1 == self.rank:
+           work = pg.scatter([outputs[1]], [input], opts)
+        else:
+           work = pg.scatter([outputs[1]], [], opts)
+        work.wait()
+        print("self.rank: ", self.rank, "output: ", outputs)
+        
+        opts = c10d.ScatterOptions()
+        opts.rootRank = 2
+        if 2== self.rank:
+           work = pg.scatter([outputs[2]], [input], opts)
+        else:
+           work = pg.scatter([outputs[2]], [], opts)
+        work.wait()
+        print("self.rank: ", self.rank, "output: ", outputs)
+        opts = c10d.ScatterOptions()
+        opts.rootRank = 3
+        if 3 == self.rank:
+           work = pg.scatter([outputs[3]], [input], opts)
+        else:
+           work = pg.scatter([outputs[3]], [], opts)
+        work.wait()
+        print("self.rank: ", self.rank, "output: ", outputs)
+        #work = []
+        #for i in range(self.world_size_1):
+        #    opts = c10d.ScatterOptions()
+        #    opts.rootRank = i
+        #    if i == self.rank:
+        #        work.append(pg.scatter([outputs[i]], [input], opts))
+        #    else:
+        #        work.append(pg.scatter([outputs[i]], [], opts))
+        #
+        ## Wait for work to complete
+        #for i in range(self.world_size_1):
+        #    work[i].wait()
+        #    print("self.rank: ", self.rank, "output: ", outputs)
+        #    #self.assertEqual(torch.tensor([i+3]), outputs[i])
+
+    def test_scatter_basics(self):
+        self._test_scatter_basics(lambda t: t.clone()) 
+     
+    def _test_gather_basics(self, fn):
+        store = c10d.FileStore(self.file_name, self.world_size)
+        pg = c10d.ProcessGroupCCL(store, self.rank, self.world_size)
+
+        # Preallocate tensors for input/output
+        input = [fn(torch.tensor([self.rank]))]
+        outputs = [fn(torch.tensor([-1])) for _ in range(self.world_size)]
+
+        # Take turns being the gather root and accumulate work items
+        work = []
+        for i in range(self.world_size):
+            opts = c10d.GatherOptions()
+            opts.rootRank = i
+            if i == self.rank:
+                work.append(pg.gather([outputs], input, opts))
+            else:
+                work.append(pg.gather([], input, opts))
+
+        # Wait for work to complete
+        expected = [torch.tensor([rank]) for rank in range(self.world_size)]
+        for i in range(self.world_size):
+            work[i].wait()
+            if i == self.rank:
+                self.assertEqual(expected, outputs)
+
+    def test_gather_basics(self):
+        self._test_gather_basics(lambda t: t.clone())
+    
+    def _test_allgather_basics(self, fn):
+        store = c10d.FileStore(self.file_name, self.world_size)
+        pg = c10d.ProcessGroupCCL(store, self.rank, self.world_size)
+
+        # Run with 1 input tensor per rank
+        for n in range(self.world_size):
+            input= [fn(torch.tensor([n * self.rank]))]
+            output = [
+                [
+                    fn(torch.tensor([-1])) for _ in range(self.world_size)
+                ] 
+            ]
+            expected_output = [
+                [
+                    torch.tensor([i*n]) for i in range(self.world_size)
+                ] 
+            ]
+            work = pg.allgather(output, input)
+            work.wait()
+            self.assertEqual(expected_output, output)
+
+    def test_allgather_basics(self):
+        self._test_allgather_basics(lambda t: t.clone())
+
+    
+    # alltoall_base
+    def _test_alltoall_base_equal_split_helper(self, fn):
+        store = c10d.FileStore(self.file_name, self.world_size)
+        pg = c10d.ProcessGroupCCL(store, self.rank, self.world_size)
+        group = list(range(0, self.world_size))
+        rank = self.rank
+        size = len(group)
+        in_tensor = fn(torch.ones([size, size]) * rank)
+        expected_tensor = torch.cat([torch.ones([1, size]) * i for i in group])
+        out_tensor = torch.ones([size, size]) * -1
+        in_splits = []
+        out_splits = []
+        work = pg.alltoall_base(out_tensor, in_tensor, out_splits, in_splits)
+        work.wait()
+        self.assertEqual(out_tensor, expected_tensor)
+   
+    def _test_alltoall_base_unequal_split_helper(self, fn):
+        store = c10d.FileStore(self.file_name, self.world_size)
+        pg = c10d.ProcessGroupCCL(store, self.rank, self.world_size)
+        group = list(range(0, self.world_size))
+        rank = self.rank
+        size = len(group)
+        in_splits = [i + 1 for i in group]
+        out_splits = [rank + 1 for _ in group]
+        in_tensor = torch.ones([sum(in_splits), size]) * rank
+        out_tensor = torch.ones([(rank + 1) * size, size])
+        expected_tensor = torch.cat([torch.ones([rank + 1, size]) * i for i in group])
+        work = pg.alltoall_base(
+             out_tensor, in_tensor, out_splits, in_splits)
+        work.wait()
+        self.assertEqual(out_tensor, expected_tensor)
+        
+    def test_allotall_equal_split_basics(self):
+        self._test_alltoall_base_equal_split_helper(lambda t: t.clone())
+
+    def test_allotall_unequal_split_basics(self):
+        self._test_alltoall_base_unequal_split_helper(lambda t: t.clone())
+
+    #alltoall 
+    def _test_all_to_all_helper(self, fn):
+        store = c10d.FileStore(self.file_name, self.world_size)
+        pg = c10d.ProcessGroupCCL(store, self.rank, self.world_size)
+        group = list(range(0, self.world_size))
+        rank = self.rank
+        size = len(group)
+        in_splits = [i + 1 for i in group]
+        in_tensors = [
+            torch.ones([in_splits[i], size]) * rank for i, _ in enumerate(group)
+        ]
+        out_tensors = [torch.ones([(rank + 1), size]) for _ in group]
+        expected_tensors = [torch.ones([rank + 1, size]) * i for i in group]
+        work = pg.alltoall(out_tensors, in_tensors)
+        work.wait()
+        for t1, t2 in zip(out_tensors, expected_tensors):
+            self.assertEqual(t1, t2)
+        
+    def test_alltoall_basics(self):
+        self._test_all_to_all_helper(lambda t: t.clone())
 
 if __name__ == '__main__':
-
     run_tests()
