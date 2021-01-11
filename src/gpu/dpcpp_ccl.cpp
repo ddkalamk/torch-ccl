@@ -94,6 +94,10 @@ Comms& get_ccl_comms(c10d::ProcessGroupCCL& pg_ccl, const std::string& devices_k
             "the devices are empty ");
   }
 
+  if (devices.size() != 1) {
+    throw std::runtime_error("Torch CCL only support one device per process now");
+  }
+
   if (pg_ccl.ccl_comms.find(devices_key) != pg_ccl.ccl_comms.end()) {
     // Reuse the cached communicator if there is one.
     return *pg_ccl.ccl_comms[devices_key];
@@ -110,7 +114,7 @@ Comms& get_ccl_comms(c10d::ProcessGroupCCL& pg_ccl, const std::string& devices_k
     devs_rank.emplace_back(rank, sycl_dev);
   }
 
-  auto ctx = at::dpcpp::getDeviceContext();
+  auto ctx = at::dpcpp::getDeviceContext(devices[0].index());
   auto dpcpp_comms = ccl::create_communicators(total_rank_size, devs_rank, ctx, pg_ccl.get_kvs());
 
   // Create the gpu streams
