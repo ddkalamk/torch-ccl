@@ -80,7 +80,12 @@ model = torch.nn.parallel.DistributedDataParallel(model, ...)
 (torch_ccl is installed along with the MPI toolset.)
 ```
 
-$ source <torch_ccl_path>/ccl/env/setvars.sh
+$ source <torch_ccl_path>/env/setvars.sh
+
+eg:
+  $ torch_ccl_path=$(python -c "import torch; import torch_ccl; import os;  print(os.path.abspath(os.path.dirname(torch_ccl.__file__)))")
+  $ source $torch_ccl_path/env/setvars.sh
+
 $ mpirun -n <N> -ppn <PPN> -f <hostfile> python example.py
 ```
 
@@ -99,6 +104,12 @@ profiling.py
 import torch.nn.parallel
 import torch.distributed as dist
 import torch_ccl
+mport os
+
+os.environ['MASTER_ADDR'] = '127.0.0.1'
+os.environ['MASTER_PORT'] = '29500'
+os.environ['RANK'] = os.environ.get('PMI_RANK', -1)
+os.environ['WORLD_SIZE'] = os.environ.get('PMI_SIZE', -1)
 
 backend = 'ccl'
 dist.init_process_group(backend, ...)
