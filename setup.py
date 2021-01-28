@@ -71,7 +71,9 @@ class BuildCMakeExt(build_ext):
 
         self.extensions = [ext for ext in self.extensions if not isinstance(ext, CMakeExtension)]
         super(BuildCMakeExt, self).run()
-
+        build_py = self.get_finalized_command('build_py')
+        build_py.data_files = build_py._get_data_files()
+        build_py.run()
     def build_cmake(self, extension: CMakeExtension):
         """
         The steps required to build the extension
