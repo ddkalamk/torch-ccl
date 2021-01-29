@@ -30,6 +30,10 @@ if(NOT DEFINED LIB_NAME)
     SET(LIB_NAME "torch_ccl")
 endif()
 
+#workaroud patch for oneCCL link issue
+execute_process(COMMAND bash -c "git apply patches/Fix_the_link_path_issue_in_oneCCL.patch"
+                WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+
 add_subdirectory(./src)
 
 function (print_configuration_summary)
