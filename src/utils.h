@@ -75,6 +75,12 @@ std::string get_key_from_devs(const std::vector<at::Device>& devices);
 std::vector<at::Device> get_device_list(const std::vector<at::Tensor>& tensors);
 std::vector<at::Device> get_device_list(const std::vector<std::vector<at::Tensor>>& tensors);
 
+template <typename ccl_fn_type>
+decltype(auto) call_with_lock(std::mutex& lock, ccl_fn_type fn) {
+  std::unique_lock<std::mutex> globalLock(lock);
+  return fn();
+}
+
 class AsyncBarrierWork: public ProcessGroupCCL::AsyncWorkCCL {
 public:
   AsyncBarrierWork(){}
@@ -98,7 +104,9 @@ public:
     for(auto& event : events) {
       bool flag;
 
-      CCL_CHECK(flag = event.test());
+      call_with_lock(c10d::ProcessGroupCCL::globalMutex, [&]() {
+        CCL_CHECK(flag = event.test());
+      });
 
       if (!flag) {
         return false;
@@ -115,7 +123,9 @@ public:
   bool wait(std::chrono::milliseconds timeout) override
   {
     for(auto& event : events) {
-      CCL_CHECK(event.wait());
+      call_with_lock(c10d::ProcessGroupCCL::globalMutex, [&]() {
+          CCL_CHECK(event.wait());
+      });
     }
     events.clear();
     return true;
@@ -172,8 +182,9 @@ public:
     for(auto& ret : rets) {
       bool flag;
       ccl::event& req = _get_event_from_ret<ret_t>(ret);
-      CCL_CHECK(flag = req.test());
-
+      call_with_lock(c10d::ProcessGroupCCL::globalMutex, [&]() {
+          CCL_CHECK(flag = req.test());
+      });
       if (!flag) {
         return false;
       }
@@ -192,7 +203,9 @@ public:
     RECORD_FUNCTION(std::string("torch_ccl::wait::") + debugName, std::vector<c10::IValue>());
     for(auto& ret : rets) {
       ccl::event& evt = _get_event_from_ret<ret_t>(ret);
-      CCL_CHECK(evt.wait());
+      call_with_lock(c10d::ProcessGroupCCL::globalMutex, [&]() {
+          CCL_CHECK(evt.wait());
+      });
     }
     rets.clear();
     // Always return true, because abort API is not implemented.
@@ -308,12 +321,6 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> collective(
     fun,
     [](std::vector<ccl::stream>&) {},
     [](std::vector<ccl::stream>&) {});
-}
-
-template <typename ccl_fn_type>
-decltype(auto) call_with_lock(std::mutex& lock, ccl_fn_type fn) {
-  std::unique_lock<std::mutex> globalLock(lock);
-  return fn();
 }
 
 }
