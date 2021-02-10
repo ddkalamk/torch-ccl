@@ -12,6 +12,9 @@ from setuptools.command.build_ext import build_ext
 from distutils.command.clean import clean
 from tools.setup.cmake import CMakeExtension
 
+# Constant known variables used throughout this file
+CWD = os.path.dirname(os.path.abspath(__file__))
+TORCH_CCL_PATH = os.path.join(CWD, "torch_ccl")
 
 def check_file(f):
     if not os.path.exists(f):
@@ -64,11 +67,11 @@ class BuildCMakeExt(build_ext):
         for ext in cmake_extensions:
             self.build_cmake(ext)
 
-        lib_path = os.path.join(self.build_lib, "torch_ccl", "lib")
         self.extensions = [ext for ext in self.extensions if not isinstance(ext, CMakeExtension)]
-        for ext in self.extensions:
-            ext.library_dirs += [lib_path]
         super(BuildCMakeExt, self).run()
+        build_py = self.get_finalized_command('build_py')
+        build_py.data_files = build_py._get_data_files()
+        build_py.run()
 
     def build_cmake(self, extension: CMakeExtension):
         """
@@ -77,7 +80,7 @@ class BuildCMakeExt(build_ext):
         build_dir = pathlib.Path('.'.join([self.build_temp, extension.name]))
 
         build_dir.mkdir(parents=True, exist_ok=True)
-        install_dir = os.path.abspath(os.path.join(self.build_lib, "torch_ccl"))
+        install_dir = TORCH_CCL_PATH
 
         # Now that the necessary directories are created, build
         my_env = os.environ.copy()
@@ -126,8 +129,9 @@ def get_python_c_module():
     main_libraries = ['torch_ccl']
     main_link_args = []
     main_sources = ["torch_ccl/csrc/_C.cpp"]
-    cwd = os.path.dirname(os.path.abspath(__file__))
-    include_path = os.path.join(cwd, "src")
+    lib_path = os.path.join(TORCH_CCL_PATH, "lib")
+    library_dirs = [lib_path]
+    include_path = os.path.join(CWD, "src")
     include_dirs = include_paths()
     include_dirs.append(include_path)
     extra_link_args = []
@@ -160,6 +164,7 @@ def get_python_c_module():
                           language='c',
                           extra_compile_args=main_compile_args + extra_compile_args,
                           include_dirs=include_dirs,
+                          library_dirs=library_dirs,
                           extra_link_args=extra_link_args + main_link_args + [make_relative_rpath('lib')])
 
     return _c_module
@@ -179,6 +184,20 @@ if __name__ == '__main__':
         package_data={
             'torch_ccl': [
                 '*.py',
+                '*/*.h',
+                '*/*.hpp',
+                'lib/*.so*',
+                'bin/*',
+                'env/*',
+                'etc/*',
+                'examples/*',
+                'include/native_device_api/*.h*',
+                'include/native_device_api/l0/*.h*',
+                'include/*.h*',
+                'lib/lib*',
+                'lib/prov/lib*',
+                'licensing/*',
+                'modulefiles/*',
             ]},
         cmdclass={
             'build_ext': BuildCMakeExt,
