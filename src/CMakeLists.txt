@@ -20,4 +20,6 @@ target_link_directories(torch_ccl PUBLIC ${IPEX_LIBRARY_DIRS})
 target_link_libraries(torch_ccl PUBLIC ${DEPENDS_LIB})
 target_link_libraries(torch_ccl PUBLIC libtorch_python.so)
 
+set_target_properties(torch_ccl PROPERTIES LINK_FLAGS "-Wl,-rpath,${CMAKE_INSTALL_RPATH}")
+
 install(TARGETS torch_ccl LIBRARY DESTINATION lib)

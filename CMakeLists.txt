@@ -26,9 +26,7 @@ set(DEPENDS_LIB)
 find_package(oneCCL REQUIRED)
 list(APPEND DEPENDS_LIB ${ONECCL_LIBRARIES})
 
-if(NOT DEFINED LIB_NAME)
-    SET(LIB_NAME "torch_ccl")
-endif()
+SET(LIB_NAME "torch_ccl")
 
 #workaroud patch for oneCCL link issue
 find_package(Patch)
