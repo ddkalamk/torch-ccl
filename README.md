@@ -38,8 +38,7 @@ To install `torch-ccl`:
 ```bash
    git clone https://github.com/intel/torch-ccl.git && cd torch-ccl 
    git submodule sync 
-   git submodule update --init --recursive 
-   git apply ./patches/Fix_the_link_path_issue_in_oneCCL.patch
+   git submodule update --init --recursive
 ```
 2. Install torch-ccl
 
