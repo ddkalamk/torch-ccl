@@ -34,7 +34,7 @@
 #include <dispatch_stub.h>
 #include <core/DPCPPUtils.h>
 #include <core/Context.h>
-#include <utils.h>
+#include "../utils.h"
 
 namespace torch_ccl
 {

@@ -31,9 +31,9 @@
 
 #include <ProcessGroupCCL.hpp>
 #include <dispatch_stub.h>
-#include <utils.h>
 #include <common/comm/host_communicator/host_communicator.hpp>
 #include <ATen/record_function.h>
+#include "../utils.h"
 
 
 namespace torch_ccl
