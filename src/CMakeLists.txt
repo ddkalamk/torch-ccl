@@ -1,4 +1,4 @@
-set(CCL_SRCS init.cpp ProcessGroupCCL.cpp cpu/cpu_ccl.cpp dispatch_stub.cpp utils.cpp)
+set(CCL_SRCS ProcessGroupCCL.cpp cpu/cpu_ccl.cpp dispatch_stub.cpp utils.cpp ccl_comm_collector.cpp)
 add_library(torch_ccl SHARED ${CCL_SRCS})
 set_target_properties(torch_ccl PROPERTIES OUTPUT_NAME ${LIB_NAME})
 set_target_properties(torch_ccl PROPERTIES POSITION_INDEPENDENT_CODE ON)

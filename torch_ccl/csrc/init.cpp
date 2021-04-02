@@ -29,10 +29,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <init.h>
+#include "init.h"
 #include <pybind11/chrono.h>
-#include <oneapi/ccl/config.h>
-#include "ProcessGroupCCL.hpp"
+#include <ProcessGroupCCL.hpp>
 
 namespace py = pybind11;
 
@@ -42,20 +41,20 @@ using shared_ptr_class_ = py::class_<T, std::shared_ptr<T>>;
 TORCH_CCL_CPP_API void torch_ccl_python_init(pybind11::module &m) {
 
   c10d::ProcessGroupCCL::cclInitOnce();
-
-  m.def("oneCCL_spec_version", []() {
-    std::string oneCCL_spec_ver;
-    std::ostringstream os(oneCCL_spec_ver);
-    os << ONECCL_SPEC_VERSION;
-    return oneCCL_spec_ver;
-  });
-
-  m.def("oneCCL_version", []() {
-    std::string oneCCL_ver;
-    std::ostringstream os(oneCCL_ver);
-    os << CCL_MAJOR_VERSION << CCL_MINOR_VERSION << CCL_UPDATE_VERSION;
-    return oneCCL_ver;
-  });
+//
+//  m.def("oneCCL_spec_version", []() {
+//    std::string oneCCL_spec_ver;
+//    std::ostringstream os(oneCCL_spec_ver);
+//    os << ONECCL_SPEC_VERSION;
+//    return oneCCL_spec_ver;
+//  });
+//
+//  m.def("oneCCL_version", []() {
+//    std::string oneCCL_ver;
+//    std::ostringstream os(oneCCL_ver);
+//    os << CCL_MAJOR_VERSION << CCL_MINOR_VERSION << CCL_UPDATE_VERSION;
+//    return oneCCL_ver;
+//  });
 
   py::object module = py::module::import("torch.distributed");
   py::object register_backend = module.attr("Backend").attr("register_backend");

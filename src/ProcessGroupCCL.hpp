@@ -41,7 +41,10 @@
 #include <c10d/Store.hpp>
 #include <c10d/Types.hpp>
 #include <c10d/Utils.hpp>
-#include <ccl_comm_collector.h>
+
+namespace torch_ccl {
+struct CCLMember;
+}
 
 namespace c10d {
 
@@ -54,11 +57,11 @@ namespace c10d {
 //
 // All collective functions provided by this class are scheduled
 // for asynchronous execution by CCL.
+
 class ProcessGroupCCL : public ProcessGroup
 {
 
 public:
-
   class AsyncWorkCCL : public ProcessGroup::Work {
   public:
     AsyncWorkCCL() : Work() {};
@@ -167,34 +170,11 @@ public:
   static void cclInitOnce();
   static void cclFini();
 
-  ccl::shared_ptr_class<ccl::kvs> get_kvs();
-
   // Store that is used to exchange information between processes.
   std::shared_ptr<Store> store_;
   std::chrono::milliseconds op_timeout_millis;
-  // ccl kvs to identify the community.
-  ccl::shared_ptr_class<ccl::kvs> kvs;
 
-  // The CCL communicator that the process group has cached.
-  // The key is a list of devices that an operation is operating on
-  // The devices are stored in a device sequence and the cache CCL
-  // communicator is associated with this device sequence
-  //
-  // e.g. If the process group op only uses device 0, then the value of
-  // the used device string stored (value of the hashmap) would be "0".
-  //
-  //      If the process group op uses device 0 - 7 and the each tensor of the
-  //      input tensor list is on device, 0, 1, 2, 3, 4, 5, 6, 7 separately,
-  //      then the value of the used device string (key) stored would be
-  //      "0,1,2,3,4,5,6,7"
-  //
-  //      If the process group op uses device 0 - 7 and the each tensor of the
-  //      input tensor list is on device, 0, 4, 5, 6, 7, 1, 2, 3 separately,
-  //      then the value of the used device string stored would be
-  //      "0,4,5,6,7,1,2,3"
-  //
-  //      Note that the order of the device for the tensor list matters.
-  std::unordered_map<std::string, std::shared_ptr<torch_ccl::Comms>> ccl_comms;
+  std::unique_ptr<torch_ccl::CCLMember> ccl_member_;
 
   static std::mutex globalMutex;
 };

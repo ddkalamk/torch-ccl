@@ -98,9 +98,9 @@ Comms& get_ccl_comms(c10d::ProcessGroupCCL& pg_ccl, const std::string& devices_k
     throw std::runtime_error("Torch CCL only support one device per process now");
   }
 
-  if (pg_ccl.ccl_comms.find(devices_key) != pg_ccl.ccl_comms.end()) {
+  if (pg_ccl.ccl_member_->ccl_comms.find(devices_key) != pg_ccl.ccl_member_->ccl_comms.end()) {
     // Reuse the cached communicator if there is one.
-    return *pg_ccl.ccl_comms[devices_key];
+    return *pg_ccl.ccl_member_->ccl_comms[devices_key];
   }
 
   // Create the gpu communicators
@@ -115,7 +115,7 @@ Comms& get_ccl_comms(c10d::ProcessGroupCCL& pg_ccl, const std::string& devices_k
   }
 
   auto ctx = at::dpcpp::getDeviceContext(devices[0].index());
-  auto dpcpp_comms = ccl::create_communicators(total_rank_size, devs_rank, ctx, pg_ccl.get_kvs());
+  auto dpcpp_comms = ccl::create_communicators(total_rank_size, devs_rank, ctx, pg_ccl.ccl_member_->get_kvs(pg_ccl.getRank(), *pg_ccl.store_));
 
   // Create the gpu streams
   std::vector<ccl::stream> ccl_streams;
@@ -130,7 +130,7 @@ Comms& get_ccl_comms(c10d::ProcessGroupCCL& pg_ccl, const std::string& devices_k
 
   std::shared_ptr<Comms> dpcpp_comms_ptr = std::make_shared<Comms>(dpcpp_comms, ccl_streams);
   // Store the comms to cache
-  pg_ccl.ccl_comms.emplace(devices_key, dpcpp_comms_ptr);
+  pg_ccl.ccl_member_->ccl_comms.emplace(devices_key, dpcpp_comms_ptr);
 
   return *dpcpp_comms_ptr.get();
 }

@@ -195,20 +195,20 @@ Comms& get_ccl_comms(c10d::ProcessGroupCCL& pg, const std::string& devices_key, 
 
   TORCH_CHECK(devices.size() == 1, "CPU device size must be 1");
 
-  if (pg.ccl_comms.find(devices_key) != pg.ccl_comms.end()) {
+  if (pg.ccl_member_->ccl_comms.find(devices_key) != pg.ccl_member_->ccl_comms.end()) {
     // Reuse the cached communicator if there is one.
-    return *pg.ccl_comms[devices_key];
+    return *pg.ccl_member_->ccl_comms[devices_key];
   }
 
   ccl::vector_class<ccl::communicator> cpu_comms;
-  auto kvs = pg.get_kvs();
+  auto kvs = pg.ccl_member_->get_kvs(pg.getRank(), *pg.store_);
   cpu_comms.emplace_back(
     call_with_lock(c10d::ProcessGroupCCL::globalMutex, [&](){
       CCL_CHECK(return ccl::create_communicator(pg.getSize(), pg.getRank(), kvs););
       })
   );
   std::shared_ptr<Comms> cpu_comms_ptr = std::make_shared<Comms>(cpu_comms);
-  pg.ccl_comms.emplace(devices_key, cpu_comms_ptr);
+  pg.ccl_member_->ccl_comms.emplace(devices_key, cpu_comms_ptr);
 
   return *cpu_comms_ptr.get();
 }
@@ -509,6 +509,8 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allgather_(std::vecto
   checkSameType(inputTensors[0], outputTensors[0]);
 
   std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> work;
+  int size = pg.getSize();
+  int rank = pg.getRank();
   work = collective<get_ccl_comms>(
     pg,
     inputTensors,
@@ -519,11 +521,11 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allgather_(std::vecto
         ccl::communicator& comm) {
         ccl::event ret_evt;
         CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "torch_ccl::cpu::allgather", [&] {
-          std::vector<size_t> recvCounts(pg.getSize(), 0);
+          std::vector<size_t> recvCounts(size, 0);
 
           auto flatRes = computeLengthsAndCheckFlat(outputs, recvCounts);
 
-          TORCH_CHECK((size_t)input.numel() == recvCounts[pg.getRank()],
+          TORCH_CHECK((size_t)input.numel() == recvCounts[rank],
                       "allgather: send and recv count doesn't match");
 
           if (flatRes.isFlat) {
@@ -835,7 +837,7 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::barrier_(const Barrie
                                                                    ProcessGroupCCL& pg) {
   
   std::shared_ptr<AsyncBarrierWork> work = std::make_shared<AsyncBarrierWork>();
-  auto& comms_map = pg.ccl_comms;
+  auto& comms_map = pg.ccl_member_->ccl_comms;
   for(auto iter = comms_map.begin(); iter != comms_map.end(); iter++){
       for(size_t i =0 ; i < iter->second->comms.size(); i++){
          work->getEvents().emplace_back(

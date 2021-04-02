@@ -31,11 +31,13 @@
 
 #pragma once
 
-#include "ProcessGroupCCL.hpp"
+#include <unistd.h>
 #include <ATen/detail/FunctionTraits.h>
 #include <ATen/record_function.h>
 #include <c10d/Types.hpp>
-#include <unistd.h>
+#include <ccl_comm_collector.h>
+#include "ProcessGroupCCL.hpp"
+
 #define CCL_CHECK(cmd)                                               \
   do {                                                               \
     try {                                                            \

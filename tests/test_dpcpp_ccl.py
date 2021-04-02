@@ -109,6 +109,9 @@ class ProcessGroupCCLDPCPPTest(MultiProcessTestCase):
         super(ProcessGroupCCLDPCPPTest, self).setUp()
         self._fork_processes()
 
+    @property
+    def world_size(self):
+        return 2
 
     def _test_broadcast_basics(self, fn):
         import torch_ipex

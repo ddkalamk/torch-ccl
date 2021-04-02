@@ -1,5 +1,5 @@
 
-set(CCL_DPCPP_SRCS ./dpcpp_ccl.cpp ./ccl_comm_collector.cpp)
+set(CCL_DPCPP_SRCS dpcpp_ccl.cpp)
 
 set_source_files_properties(${CCL_DPCPP_SRCS} PROPERTIES COMPILE_FLAGS "-DUSE_DPCPP")
 set_source_files_properties(${CCL_DPCPP_SRCS} PROPERTIES COMPILE_FLAGS "-fsycl")
