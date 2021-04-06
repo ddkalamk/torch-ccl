@@ -143,6 +143,54 @@ class ProcessGroupCCLDPCPPTest(MultiProcessTestCase):
     def test_broadcast_basics(self):
         self._test_broadcast_basics(lambda t: t.to('xpu'))
 
+    def _test_broadcast_coalesced(self, process_group, device, root_rank):
+        half = torch.float16
+
+        # No support for float16 for CPU tensors
+        if device == torch.device("cpu"):
+            half = torch.float32
+
+        print("johnlu here111")
+        # target = torch.arange(60, dtype=half, device=device).chunk(5)
+        target = torch.arange(60, dtype=torch.float32, device=device).chunk(5)
+        # target += torch.arange(60, dtype=half, device=device).chunk(5)
+        # target += torch.arange(60, dtype=torch.float64, device=device).chunk(5)
+        # target += torch.arange(60, dtype=half, device=device).chunk(5)
+        target += torch.arange(60, dtype=torch.float32, device=device).chunk(5)
+
+
+        print("johnlu here222")
+        # The tensors to pass to broadcast are idential to the target
+        # only on the process that is the root of the broadcast.
+        if self.rank == root_rank:
+            tensors = list(tensor.clone().to("xpu") for tensor in target)
+        else:
+            tensors = list(torch.zeros_like(tensor).to("xpu") for tensor in target)
+
+        # if self.rank != root_rank:
+        #     self.assertNotEqual(tensors, target)
+
+        print("johnlu _broadcast_coalesced rank {}".format(self.rank))
+        c10d._broadcast_coalesced(
+            process_group,
+            tensors,
+            buffer_size=256,
+            src=root_rank)
+
+        print("johnlu aas")
+        if self.rank != root_rank:
+            self.assertEqual(tensors, target)
+
+    def test_broadcast_coalesced_cpu(self):
+        import torch_ipex
+        import torch_ccl
+        store = c10d.FileStore(self.file_name, self.world_size)
+        pg = c10d.ProcessGroupCCL(store, self.rank, self.world_size)
+        device = torch.device("xpu")
+        ranks = list(range(self.world_size))
+        for root_rank in ranks:
+            self._test_broadcast_coalesced(pg, device, root_rank)
+
 
 if __name__ == '__main__':
 
