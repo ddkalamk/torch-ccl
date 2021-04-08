@@ -21,7 +21,6 @@ get_filename_component(FABRIC_LIBRARY_DIRS ${fabric_lib} DIRECTORY)
 target_link_directories(torch_ccl PUBLIC ${MPI_LIBRARY_DIRS} ${FABRIC_LIBRARY_DIRS})
 
 target_link_directories(torch_ccl PUBLIC ${PYTORCH_LIBRARY_DIRS})
-target_link_directories(torch_ccl PUBLIC ${IPEX_LIBRARY_DIRS})
 target_link_libraries(torch_ccl PUBLIC ${DEPENDS_LIB})
 target_link_libraries(torch_ccl PUBLIC libtorch_python.so)
 

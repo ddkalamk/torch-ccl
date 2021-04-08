@@ -114,6 +114,7 @@ class BuildCMakeExt(BuildExtension):
         max_jobs = os.getenv('MAX_JOBS', str(multiprocessing.cpu_count()))
         build_args = ['-j', max_jobs]
         check_call(['make', 'torch_ccl'] + build_args, cwd=str(build_dir), env=my_env)
+        check_call(['make', 'torch_ccl_xpu'] + build_args, cwd=str(build_dir), env=my_env)
         check_call(['make', 'install'], cwd=str(build_dir), env=my_env)
 
 
