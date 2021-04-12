@@ -6,9 +6,9 @@ import shutil
 import multiprocessing
 from subprocess import check_call, check_output
 
-from torch.utils.cpp_extension import include_paths, library_paths, BuildExtension, CppExtension
-from setuptools import setup, Extension, distutils
-from setuptools.command.build_ext import build_ext
+import torch
+from torch.utils.cpp_extension import BuildExtension, CppExtension
+from setuptools import setup
 from distutils.command.clean import clean
 from tools.setup.cmake import CMakeExtension
 from tools.setup.env import get_compiler
@@ -61,7 +61,6 @@ class BuildCMakeExt(BuildExtension):
     """
     Builds using cmake instead of the python setuptools implicit build
     """
-
     def run(self):
         """
         Perform build_cmake before doing the 'normal' stuff
@@ -90,9 +89,7 @@ class BuildCMakeExt(BuildExtension):
 
         build_options = {
             # The value cannot be easily obtained in CMakeLists.txt.
-            'PYTHON_INCLUDE_DIRS': str(distutils.sysconfig.get_python_inc()),
-            'PYTORCH_INCLUDE_DIRS': CMakeExtension.convert_cmake_dirs(include_paths()),
-            'PYTORCH_LIBRARY_DIRS': CMakeExtension.convert_cmake_dirs(library_paths()),
+            'CMAKE_PREFIX_PATH': torch.utils.cmake_prefix_path,
         }
 
         runtime = 'gcc'
@@ -150,8 +147,7 @@ def get_python_c_module():
     lib_path = os.path.join(TORCH_CCL_PATH, "lib")
     library_dirs = [lib_path]
     include_path = os.path.join(CWD, "src")
-    include_dirs = include_paths()
-    include_dirs.append(include_path)
+    include_dirs = [include_path]
     extra_link_args = []
     extra_compile_args = [
         '-Wall',
@@ -189,10 +185,6 @@ def get_python_c_module():
 
 
 if __name__ == '__main__':
-    # include_path = [os.path.join(CWD, "src"), os.path.join(CWD, "torch_ccl/include")]
-    # main_libraries = ['torch_ccl']
-    # lib_path = os.path.join(TORCH_CCL_PATH, "lib")
-    # library_dirs = [lib_path]
     version = create_version()
     c_module = get_python_c_module()
     cmake_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "CMakeLists.txt")
@@ -202,7 +194,6 @@ if __name__ == '__main__':
         version=version,
         ext_modules=modules,
         packages=['torch_ccl'],
-        install_requires=['torch'],
         package_data={
             'torch_ccl': [
                 '*.py',
@@ -223,7 +214,6 @@ if __name__ == '__main__':
             ]},
         cmdclass={
             'build_ext': BuildCMakeExt,
-            # 'build_ext': BuildExtension,
             'clean': Clean,
         }
     )

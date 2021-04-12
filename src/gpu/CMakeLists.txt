@@ -5,7 +5,7 @@ set_source_files_properties(${CCL_DPCPP_SRCS} PROPERTIES COMPILE_FLAGS "-fsycl")
 
 add_library(torch_ccl_xpu SHARED ${CCL_DPCPP_SRCS})
 
-target_include_directories(torch_ccl_xpu PUBLIC ${ONECCL_INCLUDE_DIR} ${PYTHON_INCLUDE_DIRS} ${PYTORCH_INCLUDE_DIRS} ${IPEX_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/../)
+target_include_directories(torch_ccl_xpu PUBLIC ${ONECCL_INCLUDE_DIR} ${TORCH_INCLUDE_DIRS} ${IPEX_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/../)
 target_link_directories(torch_ccl_xpu PUBLIC ${IPEX_LIBRARY_DIRS})
 
 get_target_property(mpi_lib mpi IMPORTED_LOCATION)
