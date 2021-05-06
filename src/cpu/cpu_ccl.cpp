@@ -347,7 +347,8 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allreduce_(std::vecto
 
   std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> work;
   if (layout == c10::kStrided) {
-    work = collective<get_ccl_comms>(
+    if (tensors[0].dtype() == at::kBFloat16) {
+     work = collective<get_ccl_comms>(
       pg,
       tensors,
       tensors,
@@ -356,18 +357,34 @@ std::shared_ptr<ProcessGroupCCL::AsyncWorkCCL> VanillaCPU::allreduce_(std::vecto
           ccl::allreduce_attr attr,
           ccl::communicator& comm){
             ccl::event ret_evt;
-            CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "torch_ccl::cpu::allreduce", [&] {
-              call_with_lock(c10d::ProcessGroupCCL::globalMutex, [&](){
-                CCL_CHECK(ret_evt = ccl::allreduce(input.data_ptr<scalar_t>(),
-                                       output.data_ptr<scalar_t>(),
-                                       (size_t) input.numel(),
-                                       cclOps.at(opts.reduceOp),
-                                       comm,
-                                       attr););
-              });
-            });
+            call_with_lock(c10d::ProcessGroupCCL::globalMutex, [&](){
+                CCL_CHECK(ret_evt = ccl::allreduce(input.data_ptr(), output.data_ptr(), (size_t) input.numel(), ccl::datatype::bfloat16, cclOps.at(opts.reduceOp), comm););
+                });
             return ret_evt;
           });
+    } else {
+      work = collective<get_ccl_comms>(
+          pg,
+          tensors,
+          tensors,
+          [=](at::Tensor input,
+            at::Tensor output,
+            ccl::allreduce_attr attr,
+            ccl::communicator& comm){
+          ccl::event ret_evt;
+          CCL_DISPATCH_INTEGRAL_FLOATS_TYPES(input.scalar_type(), "torch_ccl::cpu::allreduce", [&] {
+              call_with_lock(c10d::ProcessGroupCCL::globalMutex, [&](){
+                  CCL_CHECK(ret_evt = ccl::allreduce(input.data_ptr<scalar_t>(),
+                        output.data_ptr<scalar_t>(),
+                        (size_t) input.numel(),
+                        cclOps.at(opts.reduceOp),
+                        comm,
+                        attr););
+                  });
+              });
+          return ret_evt;
+          });
+    }
 
     work->debugName = std::string("torch_ccl::CPU::allreduce::sz:") + std::to_string(tensors[0].numel());
   } else if (layout == c10::kSparse) {
